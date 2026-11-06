@@ -312,4 +312,8 @@
     <string name="radiostar_history_help">Usa la exportación con Title, Artist, Album, YouTube Video ID. Descubrir y Explorar omitirán esas pistas.</string>
     <string name="radiostar_history_failed">No se pudo leer ese archivo</string>
     <string name="radiostar_save">Guardar</string>
+    <string name="radiostar_mixes">Mezclas RadioStar</string>
+    <string name="radiostar_mixes_empty">Reproduce una canción y RadioStar creará Descubrir, Jams y Explorar a partir del audio.</string>
+    <string name="radiostar_based_on">Basado en %1$s</string>
+    <string name="radiostar_play_mix">Reproducir mezcla</string>
 </resources>
