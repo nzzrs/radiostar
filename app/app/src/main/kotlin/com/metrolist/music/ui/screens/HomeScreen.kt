@@ -1199,6 +1199,10 @@ fun HomeScreen(
                     )
                 }
 
+                item(key = "radiostar_shelf") {
+                    RadioStarShelf()
+                }
+
                 if (isLoading && homePage?.chips.isNullOrEmpty()) {
                     item(key = "chips_shimmer") {
                         ShimmerHost(showGradient = false) {

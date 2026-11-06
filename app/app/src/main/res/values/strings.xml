@@ -369,4 +369,8 @@
     <string name="radiostar_history_help">Uses the export with Title, Artist, Album, YouTube Video ID. Discover and Explore will skip these tracks.</string>
     <string name="radiostar_history_failed">Could not read that file</string>
     <string name="radiostar_save">Save</string>
+    <string name="radiostar_mixes">RadioStar mixes</string>
+    <string name="radiostar_mixes_empty">Play a song and RadioStar will build Discover, Jams and Explore from the audio.</string>
+    <string name="radiostar_based_on">Based on %1$s</string>
+    <string name="radiostar_play_mix">Play mix</string>
 </resources>

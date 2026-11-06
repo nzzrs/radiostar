@@ -354,6 +354,38 @@ until they play. The harmony order therefore matters most in Jams and in long
 sessions, where profiles accumulate; it cannot rank a cold candidate by BPM.
 This is the same honest limit as energy ordering.
 
+## D-14 — Home shelves for the three mixes
+
+**Status:** implemented; publication verified on device, visual check deferred
+to the user test on `dev`.
+
+- Home shows a **RadioStar mixes** shelf under the chips, with one card per
+  mix: Discover, Jams and Explore, the seed title and three preview tracks.
+  Before the first analysis it shows a single explanatory card.
+- The service now builds all three slates from one candidate pool and one
+  embedding request, then publishes them to `RadioStarMixes` (in-memory
+  `StateFlow`). The selected mix is still the one injected into the queue, so
+  existing playback behaviour is unchanged.
+- Tapping a card calls `MusicService.playMix(kind)`: it removes the unplayed
+  slate tail, inserts that mix after the current track and jumps to its first
+  track. The ids are persisted with the same `radiostarInjected` mechanism.
+- Cards are in memory only. After a process restart the shelf is empty until
+  playback produces a new analysis; persisting three full slates would duplicate
+  the queue and stale the recommendations.
+- `MixCatalogTest` covers order, three-track preview, artist formatting, empty
+  mixes and the seed title. The recommendation suite is now 84 tests.
+
+Device evidence with the A52s:
+
+```
+RadioStarShelf: published cards=3 seed=Échame La Culpa
+RadioStarSlate: slate size=10 mix=EXPLORE order=harmony
+```
+
+The device locked with its PIN before the shelf could be tapped, so the visual
+card layout and the `playMix` jump are left for the user's `dev` test. The
+publication path, the queue code and the catalog model are tested.
+
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo
   checkpoint is a separate artefact).
