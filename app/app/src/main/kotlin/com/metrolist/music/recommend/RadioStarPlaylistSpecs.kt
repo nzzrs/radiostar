@@ -33,7 +33,6 @@ object RadioStarPlaylistSpecs {
     const val WEEKLY_DISCOVER_ID = "LP_RS_WEEKLY_DISCOVER"
     const val WEEKLY_JAMS_ID = "LP_RS_WEEKLY_JAMS"
     const val WEEKLY_EXPLORE_ID = "LP_RS_WEEKLY_EXPLORE"
-    const val CHERRY_ID = "LP_RS_CHERRY"
 
     val daily =
         listOf(
@@ -49,10 +48,7 @@ object RadioStarPlaylistSpecs {
             PlaylistSpec(WEEKLY_EXPLORE_ID, "Weekly Explore", MixKind.EXPLORE, PlaylistHorizon.WEEKLY, 30, 30),
         )
 
-    val cherry =
-        PlaylistSpec(CHERRY_ID, "DJ Cherry", MixKind.CHERRY, PlaylistHorizon.SPECIAL, 20, 14)
-
-    val all: List<PlaylistSpec> = daily + weekly + listOf(cherry)
+    val all: List<PlaylistSpec> = daily + weekly
 
     fun byId(id: String): PlaylistSpec? = all.firstOrNull { it.id == id }
 }
