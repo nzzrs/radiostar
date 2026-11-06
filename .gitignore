@@ -1,0 +1,36 @@
+# Raw idea dumps: local only, never published.
+/docs/idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+.cxx/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Personal listening data exports
+scripts/*.csv
+
+# Spike output
+spike/**/out/
+spike/**/*.onnx
+spike/**/*.pt
+/*.pt
+/*.tmp
+/630k-*.pt*

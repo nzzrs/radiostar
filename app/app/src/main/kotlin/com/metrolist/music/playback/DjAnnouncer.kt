@@ -1,0 +1,180 @@
+/**
+ * Metrolist Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ */
+
+package com.metrolist.music.playback
+
+import android.content.Context
+import android.media.AudioAttributes
+import android.os.Bundle
+import android.os.PowerManager
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import timber.log.Timber
+import java.util.Locale
+
+/**
+ * Platform TTS for the DJ voice.
+ *
+ * The phone's own engine is used instead of bundling a voice, so the APK stays
+ * small and the user picks the voice in Android. A short partial wake lock
+ * keeps the utterance alive while the screen is off, and the caller gets
+ * `duck(true/false)` around it to lower the music.
+ */
+class DjAnnouncer(
+    context: Context,
+    private val onDuck: (Boolean) -> Unit,
+) {
+    private val appContext = context.applicationContext
+    private val powerManager = appContext.getSystemService(PowerManager::class.java)
+
+    private var tts: TextToSpeech? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var currentUtterance: String? = null
+    private var ducked = false
+
+    @Volatile
+    private var ready = false
+
+    fun prepare() {
+        if (tts != null) return
+        tts =
+            TextToSpeech(appContext) { status ->
+                if (status != TextToSpeech.SUCCESS) {
+                    Timber.tag(TAG).w("tts init failed status=%d", status)
+                    return@TextToSpeech
+                }
+                configure()
+            }
+    }
+
+    private fun configure() {
+        val engine = tts ?: return
+        val language = engine.setLanguage(Locale.getDefault())
+        if (language == TextToSpeech.LANG_MISSING_DATA ||
+            language == TextToSpeech.LANG_NOT_SUPPORTED
+        ) {
+            engine.setLanguage(Locale.US)
+        }
+        engine.setSpeechRate(0.98f)
+        engine.setPitch(0.95f)
+        engine.setAudioAttributes(
+            AudioAttributes
+                .Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build(),
+        )
+        engine.setOnUtteranceProgressListener(
+            object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    Timber.tag(TAG).i("utterance start id=%s", utteranceId)
+                }
+
+                override fun onDone(utteranceId: String?) {
+                    Timber.tag(TAG).i("utterance done id=%s", utteranceId)
+                    finish(utteranceId)
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) = finish(utteranceId)
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    Timber.tag(TAG).w("tts error id=%s code=%d", utteranceId, errorCode)
+                    finish(utteranceId)
+                }
+
+                override fun onStop(utteranceId: String?, interrupted: Boolean) = finish(utteranceId)
+            },
+        )
+        ready = true
+    }
+
+    fun announce(text: String, utteranceId: String): Boolean {
+        if (text.isBlank()) return false
+        if (!ready) {
+            prepare()
+            return false
+        }
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f)
+        }
+        currentUtterance = utteranceId
+        duck()
+        acquireWakeLock()
+        val result =
+            try {
+                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+            } catch (error: Throwable) {
+                Timber.tag(TAG).e(error, "tts speak threw")
+                null
+            }
+        if (result != TextToSpeech.SUCCESS) {
+            finish(utteranceId)
+            return false
+        }
+        return true
+    }
+
+    fun shutdown() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Throwable) {
+            // The engine may already be gone.
+        }
+        tts = null
+        ready = false
+        currentUtterance = null
+        releaseWakeLock()
+        unduck()
+    }
+
+    private fun finish(utteranceId: String?) {
+        if (utteranceId != currentUtterance) return
+        currentUtterance = null
+        releaseWakeLock()
+        unduck()
+    }
+
+    private fun duck() {
+        if (ducked) return
+        ducked = true
+        onDuck(true)
+    }
+
+    private fun unduck() {
+        if (!ducked) return
+        ducked = false
+        onDuck(false)
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val lock =
+            wakeLock
+                ?: powerManager
+                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RadioStar:Dj")
+                    .apply { setReferenceCounted(false) }
+                    .also { wakeLock = it }
+        try {
+            lock.acquire(60_000L)
+        } catch (error: Throwable) {
+            Timber.tag(TAG).w(error, "wake lock failed")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        val lock = wakeLock ?: return
+        try {
+            if (lock.isHeld) lock.release()
+        } catch (_: Throwable) {
+            // Best effort.
+        }
+    }
+
+    private companion object {
+        const val TAG = "RadioStarDj"
+    }
+}
