@@ -223,14 +223,19 @@ import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarEnergyKey
+import com.metrolist.music.constants.RadioStarHarmonyKey
 import com.metrolist.music.constants.RadioStarHistoryKey
 import com.metrolist.music.constants.RadioStarInjectedKey
 import com.metrolist.music.constants.RadioStarMixKey
 import com.metrolist.music.constants.RadioStarServerKey
+import com.metrolist.music.recommend.AudioFeatures
+import com.metrolist.music.recommend.AudioOrderer
+import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
 import com.metrolist.music.recommend.DjScript
 import com.metrolist.music.recommend.EnergyOrderer
 import com.metrolist.music.recommend.ListenHistory
+import com.metrolist.music.recommend.TempoKeyEstimator
 import com.metrolist.music.utils.CoilBitmapLoader
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
@@ -464,7 +469,7 @@ class MusicService :
     @Volatile private var analysisMediaId: String? = null
     private val sessionState = SessionState()
     private val injectedIds = HashSet<String>()
-    private val trackRms = java.util.concurrent.ConcurrentHashMap<String, Float>()
+    private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
     private val djHandler = Handler(Looper.getMainLooper())
     private var djAnnouncer: DjAnnouncer? = null
     private var announcedPair: String? = null
@@ -475,7 +480,9 @@ class MusicService :
     @Volatile private var lastSlateKind: MixKind? = null
     @Volatile private var radioStarDj = false
     @Volatile private var radioStarEnergy = false
+    @Volatile private var radioStarHarmony = false
     @Volatile private var radioStarServer: String? = null
+    @Volatile private var lastSlateOrder = "score"
     @Volatile private var radioStarHistory: Set<String> = emptySet()
 
     /** Slate ids persisted across process restarts, when [injectedIds] is empty. */
@@ -4058,10 +4065,14 @@ class MusicService :
         )
 
         tap.listener = { window, rate ->
+            // Capture the track before the callback runs: the worker may finish
+            // after a transition, and the features belong to the window's track.
+            val windowMediaId = analysisMediaId
+            val windowRms = tap.lastWindowRms
             Timber.tag("RadioStarTap").i(
                 "window=%d rms=%.4f windows=%d dropped=%dB rate=%d ch=%d underruns=%d",
                 window.size,
-                tap.lastWindowRms,
+                windowRms,
                 tap.windowsEmitted,
                 tap.ring.droppedBytes,
                 rate,
@@ -4078,8 +4089,44 @@ class MusicService :
                     embedder?.droppedWindows ?: 0L,
                 )
                 sessionState.update(vector, android.os.SystemClock.elapsedRealtime())
-                analysisMediaId?.let { id -> trackRms[id] = tap.lastWindowRms }
-                probeCandidates(analysisMediaId)
+
+                val previous = windowMediaId?.let { trackProfiles[it] }
+                // Tempo and key are stable inside one track: analyse the first
+                // window and reuse it. RMS keeps updating every 10 s.
+                val needsFeatures = previous?.bpm == null || previous.key == null
+                val features =
+                    if (needsFeatures) {
+                        TempoKeyEstimator.estimate(window, rate)
+                    } else {
+                        AudioFeatures(
+                            bpm = previous.bpm,
+                            tempoConfidence = 0.0,
+                            key = previous.key,
+                            keyConfidence = 0.0,
+                            analysisMs = 0L,
+                        )
+                    }
+                if (windowMediaId != null) {
+                    trackProfiles[windowMediaId] =
+                        AudioProfile(
+                            bpm = features.bpm ?: previous?.bpm,
+                            key = features.key ?: previous?.key,
+                            rms = windowRms,
+                        )
+                }
+                if (needsFeatures) {
+                    Timber.tag("RadioStarFeatures").i(
+                        "id=%s bpm=%.1f tempoConf=%.2f key=%s keyConf=%.2f rms=%.3f ms=%d",
+                        windowMediaId,
+                        features.bpm ?: 0.0,
+                        features.tempoConfidence,
+                        features.key?.name ?: "unknown",
+                        features.keyConfidence,
+                        windowRms,
+                        features.analysisMs,
+                    )
+                }
+                probeCandidates(windowMediaId)
             }
         }
         player.addAnalyticsListener(
@@ -4133,13 +4180,14 @@ class MusicService :
             }
 
             val pool = result.items.filter { it.id != mediaId }.distinctBy { it.id }
-            val slate = buildSlate(pool)
+            val slate = buildSlate(pool, mediaId)
             if (slate.isNotEmpty()) {
                 Timber.tag("RadioStarSlate").i(
-                    "slate size=%d seed=%s mix=%s",
+                    "slate size=%d seed=%s mix=%s order=%s",
                     slate.size,
                     mediaId,
                     lastSlateKind ?: mixKind(),
+                    lastSlateOrder,
                 )
                 slate.forEachIndexed { index, entry ->
                     Timber.tag("RadioStarSlate").i(
@@ -4160,7 +4208,7 @@ class MusicService :
      * embedding, DPP for diversity. Every candidate is text-only, so the kernel
      * sees one modality and reduces to the plain Gram matrix.
      */
-    private fun buildSlate(pool: List<SongItem>): List<SlateEntry> {
+    private fun buildSlate(pool: List<SongItem>, seedMediaId: String): List<SlateEntry> {
         if (pool.size < 2) return emptyList()
         val session = sessionState.current() ?: return emptyList()
         val server =
@@ -4207,7 +4255,24 @@ class MusicService :
                 k = 10,
                 historyKeys = radioStarHistory,
             )
-        return if (radioStarEnergy) EnergyOrderer.orderByEnergyArc(slate, trackRms) else slate
+        val reference = trackProfiles[seedMediaId]
+        lastSlateOrder =
+            when {
+                radioStarHarmony -> "harmony"
+                radioStarEnergy -> "energy"
+                else -> "score"
+            }
+        return when {
+            radioStarHarmony -> AudioOrderer.harmonicPath(slate, trackProfiles, reference)
+            radioStarEnergy ->
+                EnergyOrderer.orderByEnergyArc(
+                    slate,
+                    trackProfiles.mapNotNull { (id, profile) ->
+                        profile.rms?.let { rms -> id to rms }
+                    }.toMap(),
+                )
+            else -> slate
+        }
     }
 
     /**
@@ -4222,6 +4287,8 @@ class MusicService :
                     prefs[RadioStarDjKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_dj", 0) == 1)
                 radioStarEnergy =
                     prefs[RadioStarEnergyKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_energy", 0) == 1)
+                radioStarHarmony =
+                    prefs[RadioStarHarmonyKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_harmony", 0) == 1)
                 radioStarServer =
                     prefs[RadioStarServerKey]?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
                 radioStarHistory = ListenHistory.fromStored(prefs[RadioStarHistoryKey] ?: emptySet())
@@ -4229,10 +4296,11 @@ class MusicService :
                 Timber
                     .tag("RadioStarSettings")
                     .i(
-                        "mix=%s dj=%s energy=%s server=%s history=%d",
+                        "mix=%s dj=%s energy=%s harmony=%s server=%s history=%d",
                         radioStarMix,
                         radioStarDj,
                         radioStarEnergy,
+                        radioStarHarmony,
                         radioStarServer,
                         radioStarHistory.size,
                     )

@@ -313,6 +313,47 @@ Fixes found during device verification:
   actually used, so an Explore slate appeared as Jams. It now prints the kind
   stored by `buildSlate`; the qualities already proved the real behaviour.
 
+## D-13 — On-device tempo and key
+
+**Status:** implemented, unit-tested and measured on the A52s.
+
+`TempoKeyEstimator` works on the same 10 s mono window the tap already emits,
+with no native library:
+
+- **Tempo.** 1024-point FFTs with a 512 hop feed a spectral-flux onset
+  envelope. The envelope is mean-subtracted, normalised, and autocorrelated
+  over 70–180 BPM with a 120 BPM log-normal prior and a `acf(lag) +
+  0.5 acf(2 lag)` comb term so the beat does not collapse to half time. The
+  winning lag is refined parabolically.
+- **Key.** 16384-point FFTs give 2.9 Hz bins, enough to put a 110 Hz bass note
+  on A rather than the neighbouring semitone. Magnitudes map to a chroma with
+  an 18% bass boost, then Pearson correlation against the Krumhansl-Kessler
+  major and minor profiles for all 12 roots. The margin between the best and
+  second profile is the confidence.
+- **Cost.** 294 ms for the first window of a track on the A52s. Tempo and key
+  are stable inside a track, so the service analyses the first window and
+  reuses the result; later windows only update RMS. A missing key is retried
+  on the next window.
+
+`AudioOrderer.harmonicPath` chains the part of the slate that already has a
+profile: starting from the playing track, it greedily picks the smallest
+tempo/key/RMS transition cost and puts the resulting path back into the slots
+those tracks already occupied. Candidates never played keep their score
+position. Camelot numbers give the key distance: same key 0, relative or
+adjacent 1, otherwise 2.
+
+The RadioStar screen has a separate **Tempo & key ordering** switch. Harmony
+takes precedence over energy when both are on, because the harmonic path
+already uses RMS as a tie-breaker.
+
+Tests: 26 new cases across `MusicalKeyTest`, `TempoKeyEstimatorTest` and
+`AudioOrdererTest`; the recommendation suite is now 79 tests.
+
+**Limit.** Candidate tracks are text-only, so their tempo and key are unknown
+until they play. The harmony order therefore matters most in Jams and in long
+sessions, where profiles accumulate; it cannot rank a cold candidate by BPM.
+This is the same honest limit as energy ordering.
+
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo
   checkpoint is a separate artefact).

@@ -46,6 +46,7 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarEnergyKey
+import com.metrolist.music.constants.RadioStarHarmonyKey
 import com.metrolist.music.constants.RadioStarHistoryKey
 import com.metrolist.music.constants.RadioStarMixKey
 import com.metrolist.music.constants.RadioStarServerKey
@@ -81,6 +82,7 @@ fun RadioStarScreen(navController: NavController) {
         }
     val globalDj = remember { Settings.Global.getInt(context.contentResolver, "radiostar_dj", 0) == 1 }
     val globalEnergy = remember { Settings.Global.getInt(context.contentResolver, "radiostar_energy", 0) == 1 }
+    val globalHarmony = remember { Settings.Global.getInt(context.contentResolver, "radiostar_harmony", 0) == 1 }
     val globalServer =
         remember {
             Settings.Global
@@ -93,6 +95,7 @@ fun RadioStarScreen(navController: NavController) {
     var mix by rememberEnumPreference(RadioStarMixKey, globalMix)
     var dj by rememberPreference(RadioStarDjKey, globalDj)
     var energy by rememberPreference(RadioStarEnergyKey, globalEnergy)
+    var harmony by rememberPreference(RadioStarHarmonyKey, globalHarmony)
     var server by rememberPreference(RadioStarServerKey, globalServer)
     var history by rememberPreference(RadioStarHistoryKey, emptySet<String>())
 
@@ -189,6 +192,15 @@ fun RadioStarScreen(navController: NavController) {
                             Switch(checked = energy, onCheckedChange = { energy = it })
                         },
                         onClick = { energy = !energy },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.tune),
+                        title = { Text(stringResource(R.string.radiostar_harmony)) },
+                        description = { Text(stringResource(R.string.radiostar_harmony_desc)) },
+                        trailingContent = {
+                            Switch(checked = harmony, onCheckedChange = { harmony = it })
+                        },
+                        onClick = { harmony = !harmony },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.radio),

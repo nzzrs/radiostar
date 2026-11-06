@@ -49,10 +49,24 @@ adb shell settings put global radiostar_embed_server http://<laptop>:8787
 ```bash
 python3 -m pytest spike -q                    # kernel + identity, 55 tests
 python3 -m unittest scripts/test_listenbrainz_export.py
-cd app && ./gradlew :app:testFossDebugUnitTest  # 53 recommendation tests
+cd app && ./gradlew :app:testFossDebugUnitTest  # 79 recommendation tests
+```
+
+## Branches
+
+- `main`: production. Only changed after the user has tested `dev`.
+- `dev`: integration. Features are merged here after their own tests pass.
+- `feature/<name>`: one feature per branch, branched from `dev`.
+
+```bash
+git switch dev
+git switch -c feature/my-feature
+# work, commit, test
+git switch dev && git merge --no-ff feature/my-feature
 ```
 
 ## Decisions
 
-See [docs/decisions.md](docs/decisions.md) for the decisions taken during the
-spike and the evidence behind them.
+See [docs/decisions.md](docs/decisions.md) for the numbered decisions and the
+evidence. [docs/spike.md](docs/spike.md) closes the research spike and lists
+what moved into the app.
