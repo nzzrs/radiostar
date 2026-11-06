@@ -8,9 +8,7 @@ package com.metrolist.music.ui.screens.settings
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -45,18 +42,13 @@ import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.RadioStarDjKey
-import com.metrolist.music.constants.RadioStarEnergyKey
-import com.metrolist.music.constants.RadioStarHarmonyKey
 import com.metrolist.music.constants.RadioStarHistoryKey
-import com.metrolist.music.constants.RadioStarMixKey
 import com.metrolist.music.constants.RadioStarServerKey
 import com.metrolist.music.recommend.ListenHistory
-import com.metrolist.music.recommend.MixKind
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
-import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,17 +64,7 @@ fun RadioStarScreen(navController: NavController) {
 
     // Debug/test builds may configure the engine through globals. Until the
     // user changes something here, show the value the service is using.
-    val globalMix =
-        remember {
-            when (Settings.Global.getString(context.contentResolver, "radiostar_mix")?.lowercase()) {
-                "jams" -> MixKind.JAMS
-                "explore" -> MixKind.EXPLORE
-                else -> MixKind.DISCOVER
-            }
-        }
     val globalDj = remember { Settings.Global.getInt(context.contentResolver, "radiostar_dj", 0) == 1 }
-    val globalEnergy = remember { Settings.Global.getInt(context.contentResolver, "radiostar_energy", 0) == 1 }
-    val globalHarmony = remember { Settings.Global.getInt(context.contentResolver, "radiostar_harmony", 0) == 1 }
     val globalServer =
         remember {
             Settings.Global
@@ -92,10 +74,7 @@ fun RadioStarScreen(navController: NavController) {
                 .orEmpty()
         }
 
-    var mix by rememberEnumPreference(RadioStarMixKey, globalMix)
     var dj by rememberPreference(RadioStarDjKey, globalDj)
-    var energy by rememberPreference(RadioStarEnergyKey, globalEnergy)
-    var harmony by rememberPreference(RadioStarHarmonyKey, globalHarmony)
     var server by rememberPreference(RadioStarServerKey, globalServer)
     var history by rememberPreference(RadioStarHistoryKey, emptySet<String>())
 
@@ -150,28 +129,6 @@ fun RadioStarScreen(navController: NavController) {
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
 
-        Text(
-            text = stringResource(R.string.radiostar_mix),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MixKind.values().forEach { kind ->
-                FilterChip(
-                    selected = mix == kind,
-                    onClick = { mix = kind },
-                    label = { Text(mixLabel(kind)) },
-                )
-            }
-        }
-        Text(
-            text = mixDescription(mix),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-        )
-
         Material3SettingsGroup(
             items =
                 listOf(
@@ -183,24 +140,6 @@ fun RadioStarScreen(navController: NavController) {
                             Switch(checked = dj, onCheckedChange = { dj = it })
                         },
                         onClick = { dj = !dj },
-                    ),
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.equalizer),
-                        title = { Text(stringResource(R.string.radiostar_energy)) },
-                        description = { Text(stringResource(R.string.radiostar_energy_desc)) },
-                        trailingContent = {
-                            Switch(checked = energy, onCheckedChange = { energy = it })
-                        },
-                        onClick = { energy = !energy },
-                    ),
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.tune),
-                        title = { Text(stringResource(R.string.radiostar_harmony)) },
-                        description = { Text(stringResource(R.string.radiostar_harmony_desc)) },
-                        trailingContent = {
-                            Switch(checked = harmony, onCheckedChange = { harmony = it })
-                        },
-                        onClick = { harmony = !harmony },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.radio),
@@ -296,23 +235,3 @@ fun RadioStarScreen(navController: NavController) {
         },
     )
 }
-
-@Composable
-private fun mixLabel(kind: MixKind): String =
-    stringResource(
-        when (kind) {
-            MixKind.DISCOVER -> R.string.radiostar_mix_discover
-            MixKind.JAMS -> R.string.radiostar_mix_jams
-            MixKind.EXPLORE -> R.string.radiostar_mix_explore
-        },
-    )
-
-@Composable
-private fun mixDescription(kind: MixKind): String =
-    stringResource(
-        when (kind) {
-            MixKind.DISCOVER -> R.string.radiostar_mix_discover_desc
-            MixKind.JAMS -> R.string.radiostar_mix_jams_desc
-            MixKind.EXPLORE -> R.string.radiostar_mix_explore_desc
-        },
-    )

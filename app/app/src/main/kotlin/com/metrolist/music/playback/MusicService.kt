@@ -96,16 +96,8 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.innertube.YouTube
 import android.provider.Settings
-import com.metrolist.music.recommend.Candidate
-import com.metrolist.music.recommend.MixBuilder
-import com.metrolist.music.recommend.MixKind
 import com.metrolist.music.recommend.SessionState
-import com.metrolist.music.recommend.SlateEntry
 import com.metrolist.innertube.models.SongItem
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertubex.extraction.ContentHints
 import com.metrolist.lastfm.LastFM
@@ -218,25 +210,17 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.YouTubePlaylistQueue
 import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
-import androidx.datastore.preferences.core.edit
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
+import androidx.datastore.preferences.core.edit
 import com.metrolist.music.constants.RadioStarDjKey
-import com.metrolist.music.constants.RadioStarEnergyKey
-import com.metrolist.music.constants.RadioStarHarmonyKey
-import com.metrolist.music.constants.RadioStarHistoryKey
-import com.metrolist.music.constants.RadioStarInjectedKey
-import com.metrolist.music.constants.RadioStarMixKey
-import com.metrolist.music.constants.RadioStarServerKey
+import com.metrolist.music.constants.RadioStarProfilesKey
 import com.metrolist.music.recommend.AudioFeatures
-import com.metrolist.music.recommend.AudioOrderer
 import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
 import com.metrolist.music.recommend.DjScript
-import com.metrolist.music.recommend.EnergyOrderer
-import com.metrolist.music.recommend.ListenHistory
-import com.metrolist.music.recommend.RadioStarMixes
 import com.metrolist.music.recommend.TempoKeyEstimator
+import org.json.JSONObject
 import com.metrolist.music.utils.CoilBitmapLoader
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
@@ -468,30 +452,14 @@ class MusicService :
     private val analysisUnderruns = AtomicInteger(0)
     private var analysisEmbedder: ClapEmbedder? = null
     @Volatile private var analysisMediaId: String? = null
-    @Volatile private var analysisSeedTitle: String? = null
     private val sessionState = SessionState()
-    private val injectedIds = HashSet<String>()
     private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
+    @Volatile private var radioStarDj = false
     private val djHandler = Handler(Looper.getMainLooper())
     private var djAnnouncer: DjAnnouncer? = null
     private var announcedPair: String? = null
     private var djTickerStarted = false
     private var djBaseVolume = 1f
-
-    @Volatile private var radioStarMix: MixKind? = null
-    @Volatile private var radioStarDj = false
-    @Volatile private var radioStarEnergy = false
-    @Volatile private var radioStarHarmony = false
-    @Volatile private var radioStarServer: String? = null
-    @Volatile private var radioStarHistory: Set<String> = emptySet()
-
-    /** Slate ids persisted across process restarts, when [injectedIds] is empty. */
-    @Volatile private var persistedSlateIds: Set<String> = emptySet()
-
-    /** Set while the user is playing a mix chosen from Home. */
-    @Volatile private var manualMixIds: Set<String> = emptySet()
-    @Volatile private var manualMixActive = false
-    @Volatile private var candidateProbeId: String? = null
 
     private var loudnessSetupJob: Job? = null
     private var loudnessSetupGeneration: Long = 0L
@@ -2600,13 +2568,6 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
-        // A manual Home mix keeps its list until the listener leaves it; only
-        // then does automatic slate injection resume.
-        if (manualMixActive && mediaItem?.mediaId !in manualMixIds) {
-            manualMixActive = false
-            manualMixIds = emptySet()
-        }
-
         // Only natural completion transitions mark the previous track as fully cached,
         // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -4067,12 +4028,10 @@ class MusicService :
         // embedder worker, so the media id must be captured here and on
         // transitions, never read from the player inside the callback.
         analysisMediaId = player.currentMediaItem?.mediaId
-        analysisSeedTitle = player.currentMediaItem?.mediaMetadata?.title?.toString()
         player.addListener(
             object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     analysisMediaId = mediaItem?.mediaId
-                    analysisSeedTitle = mediaItem?.mediaMetadata?.title?.toString()
                 }
             },
         )
@@ -4081,7 +4040,6 @@ class MusicService :
             // Capture the track before the callback runs: the worker may finish
             // after a transition, and the features belong to the window's track.
             val windowMediaId = analysisMediaId
-            val windowSeedTitle = analysisSeedTitle
             val windowRms = tap.lastWindowRms
             Timber.tag("RadioStarTap").i(
                 "window=%d rms=%.4f windows=%d dropped=%dB rate=%d ch=%d underruns=%d",
@@ -4140,7 +4098,9 @@ class MusicService :
                         features.analysisMs,
                     )
                 }
-                probeCandidates(windowMediaId, windowSeedTitle)
+                if (needsFeatures || tap.windowsEmitted % 6L == 0L) {
+                    persistTrackProfiles()
+                }
             }
         }
         player.addAnalyticsListener(
@@ -4159,188 +4119,43 @@ class MusicService :
         tap.enabled = true
     }
 
+    /** Keeps BPM/key/RMS for the playlist generator; small JSON, one write per track. */
+    private fun persistTrackProfiles() {
+        if (trackProfiles.isEmpty()) return
+        val payload =
+            JSONObject().apply {
+                trackProfiles.forEach { (id, profile) ->
+                    put(
+                        id,
+                        JSONObject().apply {
+                            profile.bpm?.let { put("bpm", it) }
+                            profile.rms?.let { put("rms", it.toDouble()) }
+                            profile.key?.let {
+                                put("root", it.pitchClass)
+                                put("minor", it.minor)
+                            }
+                        },
+                    )
+                }
+            }.toString()
+        applicationScope.launch {
+            runCatching {
+                dataStore.edit { prefs -> prefs[RadioStarProfilesKey] = payload }
+            }
+        }
+    }
+
     private fun createClapEmbedder(): ClapEmbedder? =
         runCatching { ClapEmbedderImpl(this) }
             .onFailure { Timber.tag("RadioStarTap").e(it, "embedder init failed") }
             .getOrNull()
 
-    /** Fetches the radio pool for a seed and builds all three mixes from it. */
-    private fun probeCandidates(mediaId: String?, seedTitle: String?) {
-        if (mediaId.isNullOrBlank() || mediaId == candidateProbeId) return
-        Timber.tag("RadioStarCandidates").i("probe mediaId=%s", mediaId)
-        candidateProbeId = mediaId
-        scope.launch(Dispatchers.IO) {
-            Timber.tag("RadioStarCandidates").i("requesting radio for %s", mediaId)
-            val result =
-                try {
-                    YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()
-                } catch (error: Throwable) {
-                    Timber.tag("RadioStarCandidates").e(error, "radio request failed")
-                    null
-                }
-            if (result == null) {
-                Timber.tag("RadioStarCandidates").w("no radio for %s", mediaId)
-                return@launch
-            }
-            Timber.tag("RadioStarCandidates").i("seed=%s count=%d", mediaId, result.items.size)
-            result.items.take(10).forEach { item ->
-                Timber.tag("RadioStarCandidates").i(
-                    "candidate id=%s title=%s artists=%s duration=%s",
-                    item.id,
-                    item.title,
-                    item.artists.joinToString(", ") { it.name },
-                    item.duration,
-                )
-            }
-
-            val pool = result.items.filter { it.id != mediaId }.distinctBy { it.id }
-            val candidates = prepareCandidates(pool) ?: return@launch
-            val slates =
-                MixKind.values().associateWith { kind ->
-                    buildSlate(candidates, kind, mediaId)
-                }
-            RadioStarMixes.publish(slates.mapValues { it.value.entries }, seedTitle)
-            Timber.tag("RadioStarShelf").i(
-                "published cards=%d seed=%s",
-                MixKind.values().count { slates[it]?.entries?.isNotEmpty() == true },
-                seedTitle,
-            )
-
-            val kind = radioStarMix ?: mixKind()
-            val selected = slates[kind] ?: return@launch
-            val slate = selected.entries
-            if (slate.isNotEmpty()) {
-                Timber.tag("RadioStarSlate").i(
-                    "slate size=%d seed=%s mix=%s order=%s",
-                    slate.size,
-                    mediaId,
-                    kind,
-                    selected.order,
-                )
-                slate.forEachIndexed { index, entry ->
-                    Timber.tag("RadioStarSlate").i(
-                        "#%d %s — %s q=%.3f",
-                        index,
-                        entry.candidate.title,
-                        entry.candidate.artists.joinToString(", "),
-                        entry.score,
-                    )
-                }
-                enqueueSlate(slate, mediaId)
-            }
-        }
-    }
-
-    private data class BuiltSlate(
-        val entries: List<SlateEntry>,
-        val order: String,
-    )
-
-    /**
-     * Text vectors from the laptop for one candidate pool. Every candidate is
-     * text-only, so the DPP kernel sees one modality and reduces to the plain
-     * Gram matrix. The embedding happens once and feeds all three mixes.
-     */
-    private fun prepareCandidates(pool: List<SongItem>): List<Candidate>? {
-        if (pool.size < 2) return null
-        val server =
-            radioStarServer
-                ?: Settings.Global
-                    .getString(contentResolver, "radiostar_embed_server")
-                    ?.trim()
-                    ?.trimEnd('/')
-        if (server.isNullOrBlank()) {
-            Timber.tag("RadioStarSlate").i("no radiostar_embed_server setting")
-            return null
-        }
-        val candidates =
-            pool
-                .filter { item ->
-                    item.title.isNotBlank() && item.artists.any { artist -> artist.name.isNotBlank() }
-                }.take(48)
-        if (candidates.size < 2) return null
-        val vectors = requestEmbeddings(server, candidates)
-        if (vectors == null || vectors.size != candidates.size) {
-            Timber.tag("RadioStarSlate").w("embed request failed for %d candidates", candidates.size)
-            return null
-        }
-        return candidates.mapIndexed { index, song ->
-            Candidate(
-                id = song.id,
-                title = song.title,
-                artists = song.artists.map { it.name },
-                vector = DoubleArray(vectors[index].size) { column -> vectors[index][column].toDouble() },
-                durationSeconds = song.duration,
-                tag = song.toMediaMetadata(),
-            )
-        }
-    }
-
-    private fun buildSlate(
-        candidates: List<Candidate>,
-        kind: MixKind,
-        seedMediaId: String,
-    ): BuiltSlate {
-        val session = sessionState.current() ?: return BuiltSlate(emptyList(), "score")
-        val slate =
-            MixBuilder.build(
-                session = session,
-                candidates = candidates,
-                kind = kind,
-                k = 10,
-                historyKeys = radioStarHistory,
-            )
-        val reference = trackProfiles[seedMediaId]
-        val order =
-            when {
-                radioStarHarmony -> "harmony"
-                radioStarEnergy -> "energy"
-                else -> "score"
-            }
-        val ordered =
-            when {
-                radioStarHarmony -> AudioOrderer.harmonicPath(slate, trackProfiles, reference)
-                radioStarEnergy ->
-                    EnergyOrderer.orderByEnergyArc(
-                        slate,
-                        trackProfiles.mapNotNull { (id, profile) ->
-                            profile.rms?.let { rms -> id to rms }
-                        }.toMap(),
-                    )
-                else -> slate
-            }
-        return BuiltSlate(ordered, order)
-    }
-
-    /**
-     * Mirrors the RadioStar preferences into volatile fields so the player
-     * thread and the embedding callback never block on DataStore.
-     */
+    /** Mirrors the DJ preference into a volatile field for the player thread. */
     private fun observeRadioStarSettings() {
         applicationScope.launch {
             dataStore.data.collect { prefs ->
-                radioStarMix = prefs[RadioStarMixKey]?.let { toMixKind(it) }
                 radioStarDj =
                     prefs[RadioStarDjKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_dj", 0) == 1)
-                radioStarEnergy =
-                    prefs[RadioStarEnergyKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_energy", 0) == 1)
-                radioStarHarmony =
-                    prefs[RadioStarHarmonyKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_harmony", 0) == 1)
-                radioStarServer =
-                    prefs[RadioStarServerKey]?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
-                radioStarHistory = ListenHistory.fromStored(prefs[RadioStarHistoryKey] ?: emptySet())
-                persistedSlateIds = prefs[RadioStarInjectedKey] ?: emptySet()
-                Timber
-                    .tag("RadioStarSettings")
-                    .i(
-                        "mix=%s dj=%s energy=%s harmony=%s server=%s history=%d",
-                        radioStarMix,
-                        radioStarDj,
-                        radioStarEnergy,
-                        radioStarHarmony,
-                        radioStarServer,
-                        radioStarHistory.size,
-                    )
                 if (!radioStarDj) {
                     djAnnouncer?.shutdown()
                     djAnnouncer = null
@@ -4348,14 +4163,6 @@ class MusicService :
             }
         }
     }
-
-    private fun toMixKind(value: String): MixKind? =
-        when (value.lowercase()) {
-            "discover" -> MixKind.DISCOVER
-            "jams" -> MixKind.JAMS
-            "explore" -> MixKind.EXPLORE
-            else -> null
-        }
 
     private fun startDjTicker() {
         if (djTickerStarted) return
@@ -4414,178 +4221,6 @@ class MusicService :
             player.volume = calculateEffectiveVolume()
             Timber.tag("RadioStarDj").i("duck off volume=%.2f", player.volume)
         }
-    }
-
-    private fun mixKind(): MixKind =
-        when (
-            Settings.Global
-                .getString(contentResolver, "radiostar_mix")
-                ?.lowercase()
-        ) {
-            "jams" -> MixKind.JAMS
-            "explore" -> MixKind.EXPLORE
-            else -> MixKind.DISCOVER
-        }
-
-    /** Debug queue injection: `radiostar_queue_mode=append`. */
-    /** Home shelf: start the cached slate for [kind] now. */
-    fun playMix(kind: MixKind) {
-        val entries = RadioStarMixes.entries(kind)
-        if (entries.isEmpty()) return
-        scope.launch(Dispatchers.Main) {
-            removeUnplayedSlates()
-            injectedIds.clear()
-            val items = entries.map { it.toQueueItem() }
-            if (player.mediaItemCount == 0) {
-                player.setMediaItems(items, 0, 0L)
-            } else {
-                player.addMediaItems(player.currentMediaItemIndex + 1, items)
-                player.seekToNextMediaItem()
-            }
-            player.prepare()
-            player.play()
-            val ids = items.map { it.mediaId }.toSet()
-            manualMixIds = ids
-            manualMixActive = true
-            injectedIds.addAll(ids)
-            persistInjected(ids)
-            Timber.tag("RadioStarShelf").i(
-                "play kind=%s tracks=%d queue=%d",
-                kind,
-                items.size,
-                player.mediaItemCount,
-            )
-        }
-    }
-
-    private fun enqueueSlate(slate: List<SlateEntry>, seedMediaId: String) {
-        if (manualMixActive) return
-        val mode = Settings.Global.getString(contentResolver, "radiostar_queue_mode")
-        if (!mode.equals("append", ignoreCase = true)) return
-
-        scope.launch(Dispatchers.Main) {
-            removeUnplayedSlates()
-            injectedIds.clear()
-
-            val existing = HashSet<String>()
-            for (index in 0 until player.mediaItemCount) {
-                existing.add(player.getMediaItemAt(index).mediaId)
-            }
-            val items =
-                slate
-                    .filter { it.candidate.id != seedMediaId && it.candidate.id !in existing }
-                    .map { it.toQueueItem() }
-            if (items.isEmpty()) return@launch
-            player.addMediaItems(player.currentMediaItemIndex + 1, items)
-            val ids = items.map { it.mediaId }.toSet()
-            injectedIds.addAll(ids)
-            persistInjected(ids)
-            Timber.tag("RadioStarSlate").i(
-                "queued %d items queue=%d",
-                items.size,
-                player.mediaItemCount,
-            )
-        }
-    }
-
-    /** Drops the previous slate's unplayed tail so the queue stays bounded. */
-    private fun removeUnplayedSlates() {
-        if (player.mediaItemCount == 0) return
-        for (index in player.mediaItemCount - 1 downTo player.currentMediaItemIndex + 1) {
-            val queued = player.getMediaItemAt(index)
-            val fromSlate =
-                queued.mediaMetadata.extras?.getBoolean(RADIO_STAR_SLATE_EXTRA) == true
-            if (queued.mediaId in injectedIds ||
-                queued.mediaId in persistedSlateIds ||
-                fromSlate
-            ) {
-                player.removeMediaItem(index)
-            }
-        }
-    }
-
-    private fun persistInjected(ids: Set<String>) {
-        applicationScope.launch {
-            runCatching {
-                dataStore.edit { prefs -> prefs[RadioStarInjectedKey] = ids }
-            }
-        }
-    }
-
-    private fun SlateEntry.toQueueItem(): MediaItem =
-        MediaItem
-            .Builder()
-            .setMediaId(candidate.id)
-            .setUri(candidate.id)
-            .setCustomCacheKey(candidate.id)
-            .setTag(candidate.tag)
-            .setMediaMetadata(
-                MediaMetadata
-                    .Builder()
-                    .setTitle(candidate.title)
-                    .setArtist(candidate.artists.joinToString(", "))
-                    .setExtras(
-                        Bundle().apply { putBoolean(RADIO_STAR_SLATE_EXTRA, true) },
-                    ).build(),
-            ).build()
-
-    private fun requestEmbeddings(server: String, items: List<SongItem>): Array<FloatArray>? {
-        val payload =
-            JSONObject().put(
-                "items",
-                JSONArray().apply {
-                    items.forEach { item ->
-                        put(
-                            JSONObject()
-                                .put("artist", item.artists.joinToString(", ") { it.name })
-                                .put("title", item.title),
-                        )
-                    }
-                },
-            )
-        val connection =
-            (URL("$server/embed").openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 5_000
-                // 48 cold items can take well over a minute on a loaded laptop.
-                readTimeout = 120_000
-                setRequestProperty("content-type", "application/json")
-            }
-        return try {
-            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-            val code = connection.responseCode
-            if (code != HttpURLConnection.HTTP_OK) {
-                val error = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                Timber.tag("RadioStarSlate").w("embed http %d body=%s", code, error.take(300))
-                return null
-            }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val array = JSONObject(body).getJSONArray("vectors")
-            Array(array.length()) { row ->
-                val values = array.getJSONArray(row)
-                FloatArray(values.length()) { col -> values.getDouble(col).toFloat() }
-            }
-        } catch (error: Throwable) {
-            Timber.tag("RadioStarSlate").e(error, "embed request threw")
-            null
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun cosine(a: FloatArray, b: FloatArray): Double {
-        if (a.size != b.size) return 0.0
-        var dot = 0.0
-        var normA = 0.0
-        var normB = 0.0
-        for (index in a.indices) {
-            dot += a[index] * b[index]
-            normA += a[index] * a[index]
-            normB += b[index] * b[index]
-        }
-        val denominator = kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)
-        return if (denominator < 1e-9) 0.0 else dot / denominator
     }
 
     private fun createMediaSourceFactory(

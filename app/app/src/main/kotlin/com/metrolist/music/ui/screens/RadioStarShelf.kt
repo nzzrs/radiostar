@@ -26,7 +26,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,22 +36,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
-import com.metrolist.music.recommend.MixCard
-import com.metrolist.music.recommend.MixKind
-import com.metrolist.music.recommend.RadioStarMixes
+import com.metrolist.music.recommend.PlaylistHorizon
+import com.metrolist.music.recommend.RadioStarPlaylistRepository
 
 /**
- * Home shelf with the three mixes the engine built from the current seed.
- * Tapping a card starts that mix immediately.
+ * Home shelf with the generated RadioStar playlists. Opening a card goes to
+ * the normal local playlist screen; the shelf never starts playback by itself.
  */
 @Composable
-fun RadioStarShelf(modifier: Modifier = Modifier) {
-    val playerConnection = LocalPlayerConnection.current
-    val cards by RadioStarMixes.cards.collectAsStateWithLifecycle()
-
+fun RadioStarShelf(
+    cards: List<RadioStarPlaylistRepository.Card>,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier =
@@ -69,7 +66,7 @@ fun RadioStarShelf(modifier: Modifier = Modifier) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = stringResource(R.string.radiostar_mixes),
+                text = stringResource(R.string.radiostar_playlists),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -77,9 +74,10 @@ fun RadioStarShelf(modifier: Modifier = Modifier) {
 
         if (cards.isEmpty()) {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                 colors =
                     CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -96,7 +94,7 @@ fun RadioStarShelf(modifier: Modifier = Modifier) {
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = stringResource(R.string.radiostar_mixes_empty),
+                        text = stringResource(R.string.radiostar_playlists_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -107,8 +105,8 @@ fun RadioStarShelf(modifier: Modifier = Modifier) {
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(cards, key = { it.kind.name }) { card ->
-                    MixCardView(card) { playerConnection?.service?.playMix(card.kind) }
+                items(cards, key = { it.id }) { card ->
+                    PlaylistCard(card) { onOpen(card.id) }
                 }
             }
         }
@@ -116,101 +114,77 @@ fun RadioStarShelf(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun MixCardView(
-    card: MixCard,
-    onPlay: () -> Unit,
+private fun PlaylistCard(
+    card: RadioStarPlaylistRepository.Card,
+    onClick: () -> Unit,
 ) {
-    val accent = accentFor(card.kind)
+    val accent = accentFor(card.horizon)
     Card(
-        modifier = Modifier.width(280.dp),
+        modifier = Modifier.width(230.dp),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Column(
             modifier =
                 Modifier
-                    .clickable(onClick = onPlay)
+                    .clickable(onClick = onClick)
                     .background(
                         Brush.verticalGradient(
-                            listOf(accent.copy(alpha = 0.35f), Color.Transparent),
+                            listOf(accent.copy(alpha = 0.38f), Color.Transparent),
                         ),
                     ).padding(16.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = mixLabel(card.kind),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Icon(
-                    painterResource(R.drawable.play),
-                    contentDescription = stringResource(R.string.radiostar_play_mix),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-
-            if (!card.seedTitle.isNullOrBlank()) {
-                Text(
-                    text = stringResource(R.string.radiostar_based_on, card.seedTitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            card.tracks.forEach { track ->
-                Column(modifier = Modifier.padding(vertical = 2.dp)) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (track.artists.isNotBlank()) {
-                        Text(
-                            text = track.artists,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = stringResource(R.string.radiostar_play_mix),
-                style = MaterialTheme.typography.labelLarge,
+                text = card.title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = horizonLabel(card.horizon),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            Text(
+                text = stringResource(R.string.radiostar_track_count, card.trackCount),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painterResource(R.drawable.play),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.radiostar_open_playlist),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun mixLabel(kind: MixKind): String =
+private fun horizonLabel(horizon: PlaylistHorizon): String =
     stringResource(
-        when (kind) {
-            MixKind.DISCOVER -> R.string.radiostar_mix_discover
-            MixKind.JAMS -> R.string.radiostar_mix_jams
-            MixKind.EXPLORE -> R.string.radiostar_mix_explore
+        when (horizon) {
+            PlaylistHorizon.DAILY -> R.string.radiostar_daily
+            PlaylistHorizon.WEEKLY -> R.string.radiostar_weekly
+            PlaylistHorizon.SPECIAL -> R.string.radiostar_special
         },
     )
 
 @Composable
-private fun accentFor(kind: MixKind): Color =
-    when (kind) {
-        MixKind.DISCOVER -> MaterialTheme.colorScheme.primary
-        MixKind.JAMS -> MaterialTheme.colorScheme.tertiary
-        MixKind.EXPLORE -> MaterialTheme.colorScheme.secondary
+private fun accentFor(horizon: PlaylistHorizon): Color =
+    when (horizon) {
+        PlaylistHorizon.DAILY -> MaterialTheme.colorScheme.primary
+        PlaylistHorizon.WEEKLY -> MaterialTheme.colorScheme.tertiary
+        PlaylistHorizon.SPECIAL -> MaterialTheme.colorScheme.secondary
     }

@@ -1136,6 +1136,9 @@ interface DatabaseDao {
         PlaylistSortType.LAST_UPDATED -> playlistsByUpdatedDateAsc()
     }.map { it.reversed(descending) }
 
+    @Query("SELECT * FROM playlist WHERE id = :playlistId LIMIT 1")
+    suspend fun playlistEntity(playlistId: String): PlaylistEntity?
+
     @Transaction
     @Query("SELECT *, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount FROM playlist WHERE id = :playlistId")
     fun playlist(playlistId: String): Flow<Playlist?>

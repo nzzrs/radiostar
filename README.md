@@ -14,10 +14,13 @@ docs/    design notes and decisions (docs/idea is gitignored, local only)
 
 The engine is complete and runs in the app: a Media3 PCM tap feeds a CLAP-tiny
 INT8 model, the session state and the DPP build a slate, and the slate is
-injected into the playback queue. Home shows a RadioStar shelf with the three
-mixes and a tap-to-play card. Mixes (Discover, Jams, Explore), the DJ voice,
-energy and harmonic ordering, and ListenBrainz history import live under
-`Settings → RadioStar`.
+turned into generated playlists. RadioStar never changes what the user chose
+to play: there is no queue injection and no mix mode.
+
+Home shows **RadioStar playlists**: Daily Discover, Daily Jam, Daily Explore,
+their weekly versions, and the special **DJ Cherry**. They are ordinary local
+playlists, also visible in Library. The DJ voice, embedding server URL and
+ListenBrainz import live under `Settings → RadioStar`.
 
 ## Build and run
 
@@ -50,7 +53,7 @@ adb shell settings put global radiostar_embed_server http://<laptop>:8787
 ```bash
 python3 -m pytest spike -q                    # kernel + identity, 55 tests
 python3 -m unittest scripts/test_listenbrainz_export.py
-cd app && ./gradlew :app:testFossDebugUnitTest  # 84 recommendation tests
+cd app && ./gradlew :app:testFossDebugUnitTest  # 85 recommendation tests
 ```
 
 ## Branches

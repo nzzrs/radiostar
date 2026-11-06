@@ -345,20 +345,9 @@
     <string name="clear_translation_models">Clear translation models</string>
 
     <string name="radiostar">RadioStar</string>
-    <string name="radiostar_description">On-device recommendations. The audio never leaves the phone; only track metadata reaches your own embedding server.</string>
-    <string name="radiostar_mix">Mix</string>
-    <string name="radiostar_mix_discover">Discover</string>
-    <string name="radiostar_mix_discover_desc">Something new: heard tracks and the seed artist are left out, at most two tracks per artist.</string>
-    <string name="radiostar_mix_jams">Jams</string>
-    <string name="radiostar_mix_jams_desc">Keep the vibe going: history and the seed artist are allowed, at most three tracks per artist.</string>
-    <string name="radiostar_mix_explore">Explore</string>
-    <string name="radiostar_mix_explore_desc">Diversity first: affinity is flattened and no artist repeats in the same slate.</string>
+    <string name="radiostar_description">RadioStar turns your listening history into playlists: daily and weekly Discover, Jam and Explore, plus the special DJ Cherry. It never changes what you choose to play.</string>
     <string name="radiostar_dj">DJ voice</string>
     <string name="radiostar_dj_desc">Announces the next track a few seconds before it starts and ducks the music while speaking.</string>
-    <string name="radiostar_energy">Energy ordering</string>
-    <string name="radiostar_energy_desc">Orders tracks with a measured loudness profile from quiet to loud. Tracks never played keep their position.</string>
-    <string name="radiostar_harmony">Tempo &amp; key ordering</string>
-    <string name="radiostar_harmony_desc">Uses the detected BPM and key to chain the tracks you have already heard as a smooth harmonic path. Candidates without a profile keep their score position.</string>
     <string name="radiostar_server">Embedding server</string>
     <string name="radiostar_server_empty">Not set</string>
     <string name="radiostar_server_hint">http://192.168.1.10:8787</string>
@@ -369,8 +358,11 @@
     <string name="radiostar_history_help">Uses the export with Title, Artist, Album, YouTube Video ID. Discover and Explore will skip these tracks.</string>
     <string name="radiostar_history_failed">Could not read that file</string>
     <string name="radiostar_save">Save</string>
-    <string name="radiostar_mixes">RadioStar mixes</string>
-    <string name="radiostar_mixes_empty">Play a song and RadioStar will build Discover, Jams and Explore from the audio.</string>
-    <string name="radiostar_based_on">Based on %1$s</string>
-    <string name="radiostar_play_mix">Play mix</string>
+    <string name="radiostar_playlists">RadioStar playlists</string>
+    <string name="radiostar_playlists_empty">Listen to some music and RadioStar will build your daily, weekly and DJ Cherry playlists.</string>
+    <string name="radiostar_daily">Daily</string>
+    <string name="radiostar_weekly">Weekly</string>
+    <string name="radiostar_special">Special</string>
+    <string name="radiostar_track_count">%1$d tracks</string>
+    <string name="radiostar_open_playlist">Open playlist</string>
 </resources>

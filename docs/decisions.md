@@ -256,22 +256,14 @@ below.
 
 ## D-12 — Mix UI, DJ voice, energy ordering, ListenBrainz
 
-**Status:** UI and DJ verified on the A52s; import is unit-tested.
+**Status:** superseded by D-14 for the mix model. The DJ and ListenBrainz
+parts remain; the mix selector and automatic queue injection were removed.
 
-- **UI.** `Settings → RadioStar` (`settings/radiostar`) selects Discover, Jams
-  or Explore, toggles the DJ and energy ordering, edits the embedding server
-  URL and imports a ListenBrainz CSV. Preferences live in DataStore
-  (`RadioStarMixKey`, `RadioStarDjKey`, `RadioStarEnergyKey`,
-  `RadioStarServerKey`, `RadioStarHistoryKey`); the service mirrors them into
-  volatile fields so the player thread never blocks. The old
-  `radiostar_mix` / `radiostar_dj` / `radiostar_energy` globals remain as a
-  fallback when the DataStore key is absent, for automated tests. The screen
-  shows the effective global value until the user changes that control, then
-  the DataStore value takes over.
-  Verified on the A52s: all labels render, tapping Explore updates the
-  description, the service logs `mix=EXPLORE`, and every quality is 0.500
-  because Explore flattens affinity. Screenshot at
-  `/tmp/opencode/radiostar-ui.png`.
+- **UI.** `Settings → RadioStar` (`settings/radiostar`) keeps the DJ switch,
+  the embedding server URL and the ListenBrainz import.
+- The old `radiostar_mix` / `radiostar_energy` / `radiostar_harmony` globals
+  and the queue-injection path are gone: the app never changes what the user
+  chose to play.
 - **DJ.** Platform TTS (no bundled voice). It announces the next track 8 s
   before the transition, ducks the player to 22% while speaking and restores
   the effective volume afterwards. A 60 s partial wake lock keeps the utterance
@@ -342,52 +334,83 @@ those tracks already occupied. Candidates never played keep their score
 position. Camelot numbers give the key distance: same key 0, relative or
 adjacent 1, otherwise 2.
 
-The RadioStar screen has a separate **Tempo & key ordering** switch. Harmony
-takes precedence over energy when both are on, because the harmonic path
-already uses RMS as a tie-breaker.
+The service persists each analysed profile to DataStore
+(`radiostarProfiles`). The playlist generator reads them and orders the slots
+that already have a profile as a harmonic path; if only RMS is known it uses
+the energy arc. Unknown candidates keep their DPP position.
 
-Tests: 26 new cases across `MusicalKeyTest`, `TempoKeyEstimatorTest` and
-`AudioOrdererTest`; the recommendation suite is now 79 tests.
+Tests: 26 cases across `MusicalKeyTest`, `TempoKeyEstimatorTest` and
+`AudioOrdererTest`; the recommendation suite is now 85 tests.
 
 **Limit.** Candidate tracks are text-only, so their tempo and key are unknown
-until they play. The harmony order therefore matters most in Jams and in long
-sessions, where profiles accumulate; it cannot rank a cold candidate by BPM.
-This is the same honest limit as energy ordering.
+until they play. Harmony therefore matters most after a few listens; it cannot
+rank a cold candidate by BPM.
 
-## D-14 — Home shelves for the three mixes
+## D-14 — Playlists, not playback modes
 
-**Status:** implemented; publication verified on device, visual check deferred
-to the user test on `dev`.
+**Status:** corrected after the user's device test. The earlier shelf treated
+Discover/Jams/Explore as modes that injected tracks into the queue; that was
+wrong and was removed.
 
-- Home shows a **RadioStar mixes** shelf under the chips, with one card per
-  mix: Discover, Jams and Explore, the seed title and three preview tracks.
-  Before the first analysis it shows a single explanatory card.
-- The service now builds all three slates from one candidate pool and one
-  embedding request, then publishes them to `RadioStarMixes` (in-memory
-  `StateFlow`). The selected mix is still the one injected into the queue, so
-  existing playback behaviour is unchanged.
-- Tapping a card calls `MusicService.playMix(kind)`: it removes the unplayed
-  slate tail, inserts that mix after the current track and jumps to its first
-  track. The ids are persisted with the same `radiostarInjected` mechanism.
-  While the listener is inside that manual list, automatic slate injection is
-  paused so the card does not get replaced after one track; it resumes when
-  playback moves outside the list.
-- Cards are in memory only. After a process restart the shelf is empty until
-  playback produces a new analysis; persisting three full slates would duplicate
-  the queue and stale the recommendations.
-- `MixCatalogTest` covers order, three-track preview, artist formatting, empty
-  mixes and the seed title. The recommendation suite is now 84 tests.
+The app now has **playlists only**. It never adds, removes or reorders what the
+user chose to play.
 
-Device evidence with the A52s:
+Seven generated playlists:
+
+| Playlist | Window | Size |
+| --- | --- | --- |
+| Daily Discover / Jam / Explore | last 7 days | 30 |
+| Weekly Discover / Jam / Explore | last 30 days | 30 |
+| DJ Cherry | last 14 days | 20, max 1 per artist |
+
+- Ids are fixed (`LP_RS_DAILY_DISCOVER`, `LP_RS_WEEKLY_JAMS`,
+  `LP_RS_CHERRY`, ...), so a refresh replaces the same rows.
+- Generation runs in the background from `App` and again from Home. Stamps in
+  DataStore are independent: daily lists rebuild when the date changes, weekly
+  lists when the ISO week changes, Cherry daily.
+- History comes from the local `event` table (most played in the window, with
+  an all-time fallback). Up to 5/8 anchor songs feed YouTube radio; the pool
+  plus the familiar history tracks is text-embedded by the laptop server.
+  The taste centroid is the normalised mean of the history vectors.
+- Discover and Explore exclude everything in the listening history. Jam keeps
+  the familiar tracks and their neighbours. Cherry mixes both with a stronger
+  novelty term and one track per artist.
+- The existing DPP/artist cap builds each slate. Tracks are stored as normal
+  local playlists with song rows and artist maps, so the native playlist screen
+  plays them, and Library lists them because they are bookmarked.
+- Home shows **RadioStar playlists** cards; opening one navigates to
+  `local_playlist/{id}`. There is no play-on-shelf action and no queue edit.
+- `RadioStarPlaylistSpecsTest` covers the seven ids, names, horizons, sizes and
+  Cherry parameters. The recommendation suite is now 85 tests.
+
+Device evidence (A52s, laptop server on LAN):
 
 ```
-RadioStarShelf: published cards=3 seed=Échame La Culpa
-RadioStarSlate: slate size=10 mix=EXPLORE order=harmony
+RadioStarPlaylists: wrote Daily Discover tracks=30
+RadioStarPlaylists: wrote Daily Jam tracks=30
+RadioStarPlaylists: wrote Daily Explore tracks=30
+RadioStarPlaylists: wrote Weekly Discover tracks=30
+RadioStarPlaylists: wrote Weekly Jam tracks=30
+RadioStarPlaylists: wrote Weekly Explore tracks=30
+RadioStarPlaylists: wrote DJ Cherry tracks=20
+RadioStarPlaylists: generated daily=true weekly=true cherry=true
+RadioStarPlaylists: cards=7
 ```
 
-The device locked with its PIN before the shelf could be tapped, so the visual
-card layout and the `playMix` jump are left for the user's `dev` test. The
-publication path, the queue code and the catalog model are tested.
+SQLite check on `song.db`:
+
+```
+LP_RS_DAILY_DISCOVER  30
+LP_RS_DAILY_JAMS      30
+LP_RS_DAILY_EXPLORE   30
+LP_RS_WEEKLY_*        30 each
+LP_RS_CHERRY          20
+```
+
+**Limits.** Without the embedding server no new playlists are generated; the
+existing ones stay. A fresh install without listens shows the empty shelf. The
+visual shelf and opening a generated playlist still need the user's device
+test; the database rows, artist maps and generation path are verified.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo
