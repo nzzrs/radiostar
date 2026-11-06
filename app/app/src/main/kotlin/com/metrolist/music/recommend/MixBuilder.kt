@@ -11,6 +11,7 @@ enum class MixKind {
     DISCOVER,
     JAMS,
     EXPLORE,
+    CHERRY,
 }
 
 data class Candidate(
@@ -54,6 +55,7 @@ object MixBuilder {
             MixKind.DISCOVER -> Params(30, 2, 0.0, true, true)
             MixKind.JAMS -> Params(30, 3, 0.0, false, false)
             MixKind.EXPLORE -> Params(30, 1, 0.5, true, true)
+            MixKind.CHERRY -> Params(20, 1, 0.35, false, true)
         }
 
     fun build(

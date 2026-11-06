@@ -675,6 +675,7 @@ fun HomeScreen(
     val speedDialItems by viewModel.speedDialItems.collectAsStateWithLifecycle()
     val pinnedSpeedDialItems by viewModel.pinnedSpeedDialItems.collectAsStateWithLifecycle()
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
+    val radioStarCards by viewModel.radioStarCards.collectAsStateWithLifecycle()
 
     // Official podcast API data
     val savedPodcastShows by viewModel.savedPodcastShows.collectAsStateWithLifecycle()
@@ -1200,7 +1201,10 @@ fun HomeScreen(
                 }
 
                 item(key = "radiostar_shelf") {
-                    RadioStarShelf()
+                    RadioStarShelf(
+                        cards = radioStarCards,
+                        onOpen = { id -> navController.navigate("local_playlist/$id") },
+                    )
                 }
 
                 if (isLoading && homePage?.chips.isNullOrEmpty()) {

@@ -288,20 +288,9 @@
     <string name="action_login">Acceder</string>
 
     <string name="radiostar">RadioStar</string>
-    <string name="radiostar_description">Recomendaciones en el dispositivo. El audio nunca sale del teléfono; solo los metadatos llegan a tu servidor de embeddings.</string>
-    <string name="radiostar_mix">Mezcla</string>
-    <string name="radiostar_mix_discover">Descubrir</string>
-    <string name="radiostar_mix_discover_desc">Algo nuevo: se descartan las pistas ya escuchadas y el artista semilla, máximo dos pistas por artista.</string>
-    <string name="radiostar_mix_jams">Jams</string>
-    <string name="radiostar_mix_jams_desc">Mantiene el ambiente: permite historial y artista semilla, máximo tres pistas por artista.</string>
-    <string name="radiostar_mix_explore">Explorar</string>
-    <string name="radiostar_mix_explore_desc">Diversidad primero: la afinidad se aplana y ningún artista se repite en la misma lista.</string>
+    <string name="radiostar_description">RadioStar convierte tu historial en playlists: Discover, Jam y Explore diarias y semanales, más la especial DJ Cherry. Nunca cambia lo que tú eliges reproducir.</string>
     <string name="radiostar_dj">Voz del DJ</string>
     <string name="radiostar_dj_desc">Anuncia la siguiente pista unos segundos antes de que empiece y baja la música mientras habla.</string>
-    <string name="radiostar_energy">Orden por energía</string>
-    <string name="radiostar_energy_desc">Ordena las pistas con el perfil de volumen medido, de suave a fuerte. Las pistas nunca reproducidas mantienen su posición.</string>
-    <string name="radiostar_harmony">Orden por tempo y tonalidad</string>
-    <string name="radiostar_harmony_desc">Usa el BPM y la tonalidad detectados para encadenar las pistas ya escuchadas en una ruta armónica suave. Los candidatos sin perfil mantienen su posición.</string>
     <string name="radiostar_server">Servidor de embeddings</string>
     <string name="radiostar_server_empty">Sin configurar</string>
     <string name="radiostar_server_hint">http://192.168.1.10:8787</string>
@@ -312,8 +301,11 @@
     <string name="radiostar_history_help">Usa la exportación con Title, Artist, Album, YouTube Video ID. Descubrir y Explorar omitirán esas pistas.</string>
     <string name="radiostar_history_failed">No se pudo leer ese archivo</string>
     <string name="radiostar_save">Guardar</string>
-    <string name="radiostar_mixes">Mezclas RadioStar</string>
-    <string name="radiostar_mixes_empty">Reproduce una canción y RadioStar creará Descubrir, Jams y Explorar a partir del audio.</string>
-    <string name="radiostar_based_on">Basado en %1$s</string>
-    <string name="radiostar_play_mix">Reproducir mezcla</string>
+    <string name="radiostar_playlists">Playlists de RadioStar</string>
+    <string name="radiostar_playlists_empty">Escucha música y RadioStar creará tus playlists diarias, semanales y DJ Cherry.</string>
+    <string name="radiostar_daily">Diaria</string>
+    <string name="radiostar_weekly">Semanal</string>
+    <string name="radiostar_special">Especial</string>
+    <string name="radiostar_track_count">%1$d pistas</string>
+    <string name="radiostar_open_playlist">Abrir playlist</string>
 </resources>

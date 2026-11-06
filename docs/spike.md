@@ -40,7 +40,7 @@ evidence behind the decisions, not as a second implementation.
 
 - Tempo and key needed real DSP; they are now implemented in
   `app/.../recommend/TempoKeyEstimator.kt`.
-- The mix surface moved from a debug setting to the RadioStar settings screen
-  and the Home shelves.
+- The recommendation surface moved from a debug setting to generated daily and
+  weekly playlists on Home and in Library, plus DJ Cherry.
 
 See `docs/decisions.md` for the numbered decisions and the measured evidence.

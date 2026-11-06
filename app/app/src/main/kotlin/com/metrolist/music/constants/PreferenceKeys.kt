@@ -722,10 +722,7 @@ val CountryCodeToName =
     )
 
 // RadioStar recommendation engine. Absent keys keep the old behaviour.
-val RadioStarMixKey = stringPreferencesKey("radiostarMix")
 val RadioStarDjKey = booleanPreferencesKey("radiostarDj")
-val RadioStarEnergyKey = booleanPreferencesKey("radiostarEnergy")
-val RadioStarHarmonyKey = booleanPreferencesKey("radiostarHarmony")
 val RadioStarServerKey = stringPreferencesKey("radiostarServer")
 val RadioStarHistoryKey = stringSetPreferencesKey("radiostarHistory")
-val RadioStarInjectedKey = stringSetPreferencesKey("radiostarInjected")
+val RadioStarProfilesKey = stringPreferencesKey("radiostarProfiles")
