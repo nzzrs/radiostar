@@ -27,7 +27,6 @@ import com.metrolist.music.utils.dataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.temporal.WeekFields
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -73,7 +72,17 @@ class RadioStarPlaylistRepository
         private val mutex = Mutex()
 
         init {
-            scope.launch { loadCards() }
+            scope.launch {
+                cleanupLegacy()
+                loadCards()
+            }
+        }
+
+        /** DJ Cherry used to be a playlist; remove the old generated row once. */
+        private suspend fun cleanupLegacy() {
+            runCatching {
+                database.delete(PlaylistEntity(id = LEGACY_CHERRY_ID, name = "DJ Cherry"))
+            }
         }
 
         /**
@@ -84,10 +93,14 @@ class RadioStarPlaylistRepository
             mutex.withLock {
                 val today = LocalDate.now()
                 val prefs = context.dataStore.data.first()
-                val dailyDue = force || prefs[DAILY_STAMP] != today.toString()
-                val weeklyDue = force || prefs[WEEKLY_STAMP] != isoWeek(today)
-                val cherryDue = force || prefs[CHERRY_STAMP] != today.toString()
-                if (!dailyDue && !weeklyDue && !cherryDue) {
+                val plan =
+                    PlaylistSchedule.plan(
+                        today = today,
+                        lastDailyStamp = prefs[DAILY_STAMP],
+                        lastWeeklyStamp = prefs[WEEKLY_STAMP],
+                        force = force,
+                    )
+                if (!plan.daily && !plan.weekly) {
                     loadCards()
                     return
                 }
@@ -100,26 +113,17 @@ class RadioStarPlaylistRepository
                 }
 
                 try {
-                    if (dailyDue) {
+                    if (plan.daily) {
                         generateGroup(RadioStarPlaylistSpecs.daily, days = 7, anchors = 5, perAnchor = 18, server)
                     }
-                    if (weeklyDue) {
+                    if (plan.weekly) {
                         generateGroup(RadioStarPlaylistSpecs.weekly, days = 30, anchors = 8, perAnchor = 18, server)
                     }
-                    if (cherryDue) {
-                        generateGroup(listOf(RadioStarPlaylistSpecs.cherry), days = 14, anchors = 6, perAnchor = 18, server)
-                    }
                     context.dataStore.edit { settings ->
-                        if (dailyDue) settings[DAILY_STAMP] = today.toString()
-                        if (weeklyDue) settings[WEEKLY_STAMP] = isoWeek(today)
-                        if (cherryDue) settings[CHERRY_STAMP] = today.toString()
+                        if (plan.daily) settings[DAILY_STAMP] = PlaylistSchedule.dailyStamp(today)
+                        if (plan.weekly) settings[WEEKLY_STAMP] = PlaylistSchedule.weeklyStamp(today)
                     }
-                    Timber.tag(TAG).i(
-                        "generated daily=%s weekly=%s cherry=%s",
-                        dailyDue,
-                        weeklyDue,
-                        cherryDue,
-                    )
+                    Timber.tag(TAG).i("generated daily=%s weekly=%s", plan.daily, plan.weekly)
                 } catch (error: Throwable) {
                     Timber.tag(TAG).e(error, "playlist generation failed")
                 }
@@ -406,11 +410,6 @@ class RadioStarPlaylistRepository
                     ?.trimEnd('/')
                     ?.takeIf { it.isNotEmpty() }
 
-        private fun isoWeek(date: LocalDate): String {
-            val fields = WeekFields.ISO
-            return "${date.get(fields.weekBasedYear())}-W${date.get(fields.weekOfWeekBasedYear())}"
-        }
-
         private data class PoolSong(
             val id: String,
             val title: String,
@@ -424,9 +423,9 @@ class RadioStarPlaylistRepository
 
         private companion object {
             const val TAG = "RadioStarPlaylists"
+            const val LEGACY_CHERRY_ID = "LP_RS_CHERRY"
 
             val DAILY_STAMP = stringPreferencesKey("radioStarDailyStamp")
             val WEEKLY_STAMP = stringPreferencesKey("radioStarWeeklyStamp")
-            val CHERRY_STAMP = stringPreferencesKey("radioStarCherryStamp")
         }
     }

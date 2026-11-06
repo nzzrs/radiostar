@@ -17,10 +17,11 @@ INT8 model, the session state and the DPP build a slate, and the slate is
 turned into generated playlists. RadioStar never changes what the user chose
 to play: there is no queue injection and no mix mode.
 
-Home shows **RadioStar playlists**: Daily Discover, Daily Jam, Daily Explore,
-their weekly versions, and the special **DJ Cherry**. They are ordinary local
-playlists, also visible in Library. The DJ voice, embedding server URL and
-ListenBrainz import live under `Settings → RadioStar`.
+Home shows **RadioStar playlists**: Daily Discover, Daily Jam, Daily Explore
+and their weekly versions. They are ordinary local playlists, also visible in
+Library, rebuilt once per day or week. DJ Cherry is a separate on-demand DJ
+session, not a playlist. The DJ voice, embedding server URL and ListenBrainz
+import live under `Settings → RadioStar`.
 
 ## Build and run
 
@@ -53,7 +54,7 @@ adb shell settings put global radiostar_embed_server http://<laptop>:8787
 ```bash
 python3 -m pytest spike -q                    # kernel + identity, 55 tests
 python3 -m unittest scripts/test_listenbrainz_export.py
-cd app && ./gradlew :app:testFossDebugUnitTest  # 85 recommendation tests
+cd app && ./gradlew :app:testFossDebugUnitTest  # 91 recommendation tests
 ```
 
 ## Branches
@@ -68,6 +69,11 @@ git switch -c feature/my-feature
 # work, commit, test
 git switch dev && git merge --no-ff feature/my-feature
 ```
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the arc42 description:
+playlists, scheduling, scrobbler import, DJ Cherry and deployment.
 
 ## Decisions
 

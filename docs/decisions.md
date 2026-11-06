@@ -340,7 +340,7 @@ that already have a profile as a harmonic path; if only RMS is known it uses
 the energy arc. Unknown candidates keep their DPP position.
 
 Tests: 26 cases across `MusicalKeyTest`, `TempoKeyEstimatorTest` and
-`AudioOrdererTest`; the recommendation suite is now 85 tests.
+`AudioOrdererTest`; the recommendation suite is now 91 tests.
 
 **Limit.** Candidate tracks are text-only, so their tempo and key are unknown
 until they play. Harmony therefore matters most after a few listens; it cannot
@@ -355,33 +355,35 @@ wrong and was removed.
 The app now has **playlists only**. It never adds, removes or reorders what the
 user chose to play.
 
-Seven generated playlists:
+Six generated playlists:
 
-| Playlist | Window | Size |
-| --- | --- | --- |
-| Daily Discover / Jam / Explore | last 7 days | 30 |
-| Weekly Discover / Jam / Explore | last 30 days | 30 |
-| DJ Cherry | last 14 days | 20, max 1 per artist |
+| Playlist | Window | Size | Refresh |
+| --- | --- | --- | --- |
+| Daily Discover / Jam / Explore | last 7 days | 30 | once per calendar day |
+| Weekly Discover / Jam / Explore | last 30 days | 30 | once per ISO week |
 
-- Ids are fixed (`LP_RS_DAILY_DISCOVER`, `LP_RS_WEEKLY_JAMS`,
-  `LP_RS_CHERRY`, ...), so a refresh replaces the same rows.
-- Generation runs in the background from `App` and again from Home. Stamps in
-  DataStore are independent: daily lists rebuild when the date changes, weekly
-  lists when the ISO week changes, Cherry daily.
+DJ Cherry is **not** a playlist. It is a DJ session (D-15).
+
+- Ids are fixed (`LP_RS_DAILY_DISCOVER`, `LP_RS_WEEKLY_JAMS`, ...), so a
+  refresh replaces the same rows.
+- `PlaylistSchedule` is the only scheduling rule. A stamp in DataStore stores
+  the date/week that was successfully generated. Repeated app starts, Home
+  recreations and background checks do not regenerate anything; a failed run
+  leaves the stamp unchanged so the next attempt retries.
 - History comes from the local `event` table (most played in the window, with
   an all-time fallback). Up to 5/8 anchor songs feed YouTube radio; the pool
   plus the familiar history tracks is text-embedded by the laptop server.
   The taste centroid is the normalised mean of the history vectors.
 - Discover and Explore exclude everything in the listening history. Jam keeps
-  the familiar tracks and their neighbours. Cherry mixes both with a stronger
-  novelty term and one track per artist.
+  the familiar tracks and their neighbours.
 - The existing DPP/artist cap builds each slate. Tracks are stored as normal
   local playlists with song rows and artist maps, so the native playlist screen
   plays them, and Library lists them because they are bookmarked.
 - Home shows **RadioStar playlists** cards; opening one navigates to
   `local_playlist/{id}`. There is no play-on-shelf action and no queue edit.
-- `RadioStarPlaylistSpecsTest` covers the seven ids, names, horizons, sizes and
-  Cherry parameters. The recommendation suite is now 85 tests.
+- `RadioStarPlaylistSpecsTest` covers the six ids, names, horizons and sizes;
+  `PlaylistScheduleTest` covers the once-per-period rule. The recommendation
+  suite is now 91 tests.
 
 Device evidence (A52s, laptop server on LAN):
 
@@ -392,9 +394,8 @@ RadioStarPlaylists: wrote Daily Explore tracks=30
 RadioStarPlaylists: wrote Weekly Discover tracks=30
 RadioStarPlaylists: wrote Weekly Jam tracks=30
 RadioStarPlaylists: wrote Weekly Explore tracks=30
-RadioStarPlaylists: wrote DJ Cherry tracks=20
-RadioStarPlaylists: generated daily=true weekly=true cherry=true
-RadioStarPlaylists: cards=7
+RadioStarPlaylists: generated daily=true weekly=true
+RadioStarPlaylists: cards=6
 ```
 
 SQLite check on `song.db`:
@@ -404,13 +405,45 @@ LP_RS_DAILY_DISCOVER  30
 LP_RS_DAILY_JAMS      30
 LP_RS_DAILY_EXPLORE   30
 LP_RS_WEEKLY_*        30 each
-LP_RS_CHERRY          20
 ```
 
 **Limits.** Without the embedding server no new playlists are generated; the
 existing ones stay. A fresh install without listens shows the empty shelf. The
 visual shelf and opening a generated playlist still need the user's device
 test; the database rows, artist maps and generation path are verified.
+
+## D-15 — DJ Cherry is a session, not a playlist
+
+**Status:** design approved in `docs/architecture.md`; implementation pending.
+
+- DJ Cherry left the generated-playlist set and the playlist shelf.
+- Home gets a smaller DJ block, separate from the playlists: a fruit emoji,
+  the selected persona name, and the line *Let the DJ play the beat*.
+- Tapping it opens the DJ panel, not a playlist. The panel has a radial wheel
+  with three dimensions and three stops each (Never / Sometimes / Frequently):
+  familiar tracks, tracks far from the taste, and tracks that look like the
+  taste. The same wheel selects the persona.
+- Personas are fruit characters with a short name, emoji and personality:
+  Cherry (default), Lemon, Berry, Banana, Strawberry, Coco. The persona changes
+  the TTS pitch/rate and the wording, not the recommendation math.
+- Starting the DJ is explicit. Only then does the app build an on-demand queue
+  and talk between tracks. Nothing changes the queue outside a DJ session.
+
+## D-16 — Scrobbler-first listening history
+
+**Status:** architecture in `docs/architecture.md`; implementation pending.
+
+- The local event table is not enough: a user who listens elsewhere would get
+  generic recommendations. The app must import listens from Last.fm,
+  ListenBrainz or a self-hosted compatible service, store them on the phone,
+  and merge them with local events before generating playlists.
+- Import is paged, resumable and idempotent: a checkpoint per service, a
+  unique fingerprint per listen, validation of required fields, bounded
+  retries with backoff, and no stamp advance on failure.
+- Outbound scrobbling stays as backup. The app both sends its own listens and
+  downloads the service's history.
+- Without a linked scrobbler the playlists use a generic seed and are marked
+  as such; the empty or misleading history is never presented as personal.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

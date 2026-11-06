@@ -11,11 +11,10 @@ import org.junit.Test
 
 class RadioStarPlaylistSpecsTest {
     @Test
-    fun `there are three daily, three weekly and one special playlist`() {
+    fun `there are three daily and three weekly playlists`() {
         assertEquals(3, RadioStarPlaylistSpecs.daily.size)
         assertEquals(3, RadioStarPlaylistSpecs.weekly.size)
-        assertEquals(PlaylistHorizon.SPECIAL, RadioStarPlaylistSpecs.cherry.horizon)
-        assertEquals(7, RadioStarPlaylistSpecs.all.size)
+        assertEquals(6, RadioStarPlaylistSpecs.all.size)
     }
 
     @Test
@@ -25,7 +24,6 @@ class RadioStarPlaylistSpecsTest {
         assertEquals(ids.size, ids.toSet().size)
         assertEquals("LP_RS_DAILY_JAMS", RadioStarPlaylistSpecs.daily.first { it.kind == MixKind.JAMS }.id)
         assertEquals("LP_RS_WEEKLY_EXPLORE", RadioStarPlaylistSpecs.weekly.first { it.kind == MixKind.EXPLORE }.id)
-        assertEquals("LP_RS_CHERRY", RadioStarPlaylistSpecs.cherry.id)
     }
 
     @Test
@@ -46,27 +44,16 @@ class RadioStarPlaylistSpecsTest {
                 "Weekly Discover",
                 "Weekly Jam",
                 "Weekly Explore",
-                "DJ Cherry",
             ),
             RadioStarPlaylistSpecs.all.map { it.title },
         )
     }
 
     @Test
-    fun `cherry is a small high-diversity playlist`() {
-        val cherry = RadioStarPlaylistSpecs.cherry
-
-        assertEquals(MixKind.CHERRY, cherry.kind)
-        assertEquals(20, cherry.size)
-        assertEquals(1, MixBuilder.params(MixKind.CHERRY).maxPerArtist)
-        assertEquals(false, MixBuilder.params(MixKind.CHERRY).excludeHistory)
-    }
-
-    @Test
     fun `lookup by id works and rejects unknown ids`() {
         assertEquals(
-            RadioStarPlaylistSpecs.CHERRY_ID,
-            RadioStarPlaylistSpecs.byId(RadioStarPlaylistSpecs.CHERRY_ID)?.id,
+            RadioStarPlaylistSpecs.DAILY_JAMS_ID,
+            RadioStarPlaylistSpecs.byId(RadioStarPlaylistSpecs.DAILY_JAMS_ID)?.id,
         )
         assertEquals(null, RadioStarPlaylistSpecs.byId("LP_UNKNOWN"))
     }
