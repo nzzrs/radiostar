@@ -238,7 +238,7 @@ kept (`app-foss-{debug,release}.apk`) so the measurement scripts do not change.
 Measured with `assembleFossDebug` and `assembleFossRelease` (R8, unsigned):
 
 ```
-debug   108.9 MB
+debug   111.1 MB
 release  83.4 MB
 ```
 
