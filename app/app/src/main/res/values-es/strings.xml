@@ -300,6 +300,8 @@
     <string name="radiostar_dj_desc">Anuncia la siguiente pista unos segundos antes de que empiece y baja la música mientras habla.</string>
     <string name="radiostar_energy">Orden por energía</string>
     <string name="radiostar_energy_desc">Ordena las pistas con el perfil de volumen medido, de suave a fuerte. Las pistas nunca reproducidas mantienen su posición.</string>
+    <string name="radiostar_harmony">Orden por tempo y tonalidad</string>
+    <string name="radiostar_harmony_desc">Usa el BPM y la tonalidad detectados para encadenar las pistas ya escuchadas en una ruta armónica suave. Los candidatos sin perfil mantienen su posición.</string>
     <string name="radiostar_server">Servidor de embeddings</string>
     <string name="radiostar_server_empty">Sin configurar</string>
     <string name="radiostar_server_hint">http://192.168.1.10:8787</string>

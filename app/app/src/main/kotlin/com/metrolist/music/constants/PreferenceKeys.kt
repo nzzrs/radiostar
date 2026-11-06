@@ -725,6 +725,7 @@ val CountryCodeToName =
 val RadioStarMixKey = stringPreferencesKey("radiostarMix")
 val RadioStarDjKey = booleanPreferencesKey("radiostarDj")
 val RadioStarEnergyKey = booleanPreferencesKey("radiostarEnergy")
+val RadioStarHarmonyKey = booleanPreferencesKey("radiostarHarmony")
 val RadioStarServerKey = stringPreferencesKey("radiostarServer")
 val RadioStarHistoryKey = stringSetPreferencesKey("radiostarHistory")
 val RadioStarInjectedKey = stringSetPreferencesKey("radiostarInjected")

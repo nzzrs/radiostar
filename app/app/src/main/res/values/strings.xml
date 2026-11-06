@@ -357,6 +357,8 @@
     <string name="radiostar_dj_desc">Announces the next track a few seconds before it starts and ducks the music while speaking.</string>
     <string name="radiostar_energy">Energy ordering</string>
     <string name="radiostar_energy_desc">Orders tracks with a measured loudness profile from quiet to loud. Tracks never played keep their position.</string>
+    <string name="radiostar_harmony">Tempo &amp; key ordering</string>
+    <string name="radiostar_harmony_desc">Uses the detected BPM and key to chain the tracks you have already heard as a smooth harmonic path. Candidates without a profile keep their score position.</string>
     <string name="radiostar_server">Embedding server</string>
     <string name="radiostar_server_empty">Not set</string>
     <string name="radiostar_server_hint">http://192.168.1.10:8787</string>
