@@ -487,6 +487,10 @@ class MusicService :
 
     /** Slate ids persisted across process restarts, when [injectedIds] is empty. */
     @Volatile private var persistedSlateIds: Set<String> = emptySet()
+
+    /** Set while the user is playing a mix chosen from Home. */
+    @Volatile private var manualMixIds: Set<String> = emptySet()
+    @Volatile private var manualMixActive = false
     @Volatile private var candidateProbeId: String? = null
 
     private var loudnessSetupJob: Job? = null
@@ -2596,6 +2600,13 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        // A manual Home mix keeps its list until the listener leaves it; only
+        // then does automatic slate injection resume.
+        if (manualMixActive && mediaItem?.mediaId !in manualMixIds) {
+            manualMixActive = false
+            manualMixIds = emptySet()
+        }
+
         // Only natural completion transitions mark the previous track as fully cached,
         // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -4434,6 +4445,8 @@ class MusicService :
             player.prepare()
             player.play()
             val ids = items.map { it.mediaId }.toSet()
+            manualMixIds = ids
+            manualMixActive = true
             injectedIds.addAll(ids)
             persistInjected(ids)
             Timber.tag("RadioStarShelf").i(
@@ -4446,6 +4459,7 @@ class MusicService :
     }
 
     private fun enqueueSlate(slate: List<SlateEntry>, seedMediaId: String) {
+        if (manualMixActive) return
         val mode = Settings.Global.getString(contentResolver, "radiostar_queue_mode")
         if (!mode.equals("append", ignoreCase = true)) return
 

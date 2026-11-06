@@ -369,6 +369,9 @@ to the user test on `dev`.
 - Tapping a card calls `MusicService.playMix(kind)`: it removes the unplayed
   slate tail, inserts that mix after the current track and jumps to its first
   track. The ids are persisted with the same `radiostarInjected` mechanism.
+  While the listener is inside that manual list, automatic slate injection is
+  paused so the card does not get replaced after one track; it resumes when
+  playback moves outside the list.
 - Cards are in memory only. After a process restart the shelf is empty until
   playback produces a new analysis; persisting three full slates would duplicate
   the queue and stale the recommendations.
