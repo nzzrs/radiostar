@@ -53,12 +53,20 @@ import com.metrolist.music.constants.LanguageCodeToName
 import com.metrolist.music.constants.OpenRouterApiKey
 import com.metrolist.music.constants.OpenRouterBaseUrlKey
 import com.metrolist.music.constants.OpenRouterModelKey
+import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_BASE_URL
+import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_MODEL
+import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_PROVIDER
+import com.metrolist.music.constants.RadioStarDjApiKeyKey
+import com.metrolist.music.constants.RadioStarDjBaseUrlKey
+import com.metrolist.music.constants.RadioStarDjModelKey
+import com.metrolist.music.constants.RadioStarDjProviderKey
 import com.metrolist.music.constants.TranslateLanguageKey
 import com.metrolist.music.constants.TranslateModeKey
 import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.TextFieldDialog
+import com.metrolist.music.recommend.SecureKeyStore
 import com.metrolist.music.utils.rememberPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,6 +81,10 @@ fun AiSettings(navController: NavController) {
     var deeplApiKey by rememberPreference(DeeplApiKey, "")
     var deeplFormality by rememberPreference(DeeplFormalityKey, "default")
     var aiSystemPrompt by rememberPreference(AiSystemPromptKey, "")
+    var djProvider by rememberPreference(RadioStarDjProviderKey, RADIOSTAR_DEFAULT_DJ_PROVIDER)
+    var djBaseUrl by rememberPreference(RadioStarDjBaseUrlKey, RADIOSTAR_DEFAULT_DJ_BASE_URL)
+    var djModel by rememberPreference(RadioStarDjModelKey, RADIOSTAR_DEFAULT_DJ_MODEL)
+    var djKeyCipher by rememberPreference(RadioStarDjApiKeyKey, "")
 
     val aiProviders =
         mapOf(
@@ -178,6 +190,11 @@ fun AiSettings(navController: NavController) {
     var showModelDialog by rememberSaveable { mutableStateOf(false) }
     var showCustomModelInput by rememberSaveable { mutableStateOf(false) }
     var showSystemPromptDialog by rememberSaveable { mutableStateOf(false) }
+    var showDjProviderDialog by rememberSaveable { mutableStateOf(false) }
+    var showDjModelDialog by rememberSaveable { mutableStateOf(false) }
+    var showDjKeyDialog by rememberSaveable { mutableStateOf(false) }
+    var showDjBaseDialog by rememberSaveable { mutableStateOf(false) }
+    var showDjCustomModelInput by rememberSaveable { mutableStateOf(false) }
 
     if (showProviderHelpDialog) {
         AlertDialog(
@@ -437,6 +454,89 @@ fun AiSettings(navController: NavController) {
         )
     }
 
+    if (showDjProviderDialog) {
+        EnumDialog(
+            onDismiss = { showDjProviderDialog = false },
+            onSelect = { provider ->
+                djProvider = provider
+                djBaseUrl = aiProviders[provider] ?: ""
+                djModel = modelsByProvider[provider]?.firstOrNull().orEmpty()
+                showDjProviderDialog = false
+            },
+            title = stringResource(R.string.ai_provider),
+            current = djProvider,
+            values = aiProviders.keys.filter { it != "DeepL" },
+            valueText = { it },
+        )
+    }
+
+    if (showDjModelDialog) {
+        val djModels = modelsByProvider[djProvider] ?: listOf()
+        EnumDialog(
+            onDismiss = { showDjModelDialog = false },
+            onSelect = {
+                if (it == "custom_input") {
+                    showDjCustomModelInput = true
+                    showDjModelDialog = false
+                } else {
+                    djModel = it
+                    showDjModelDialog = false
+                }
+            },
+            title = stringResource(R.string.ai_model),
+            current = if (djModel in djModels) djModel else "custom_input",
+            values = djModels + "custom_input",
+            valueText = { if (it == "custom_input") "Custom" else it },
+        )
+    }
+
+    if (showDjCustomModelInput) {
+        TextFieldDialog(
+            title = { Text(stringResource(R.string.ai_model)) },
+            icon = { Icon(painterResource(R.drawable.discover_tune), null) },
+            initialTextFieldValue = TextFieldValue(text = djModel),
+            onDone = {
+                djModel = it
+                showDjCustomModelInput = false
+            },
+            onDismiss = { showDjCustomModelInput = false },
+        )
+    }
+
+    if (showDjBaseDialog) {
+        TextFieldDialog(
+            title = { Text(stringResource(R.string.ai_base_url)) },
+            icon = { Icon(painterResource(R.drawable.link), null) },
+            initialTextFieldValue = TextFieldValue(text = djBaseUrl),
+            onDone = {
+                djBaseUrl = it
+                showDjBaseDialog = false
+            },
+            onDismiss = { showDjBaseDialog = false },
+        )
+    }
+
+    if (showDjKeyDialog) {
+        TextFieldDialog(
+            title = { Text(stringResource(R.string.radiostar_dj_ai_key)) },
+            icon = { Icon(painterResource(R.drawable.key), null) },
+            initialTextFieldValue = TextFieldValue(text = SecureKeyStore.decrypt(djKeyCipher).orEmpty()),
+            onDone = {
+                djKeyCipher = if (it.isBlank()) "" else SecureKeyStore.encrypt(it.trim()).orEmpty()
+                showDjKeyDialog = false
+            },
+            onDismiss = { showDjKeyDialog = false },
+            extraContent = {
+                Text(
+                    text = stringResource(R.string.radiostar_dj_ai_key_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            },
+        )
+    }
+
     if (showSystemPromptDialog) {
         TextFieldDialog(
             title = { Text(stringResource(R.string.ai_system_prompt)) },
@@ -593,6 +693,51 @@ fun AiSettings(navController: NavController) {
         )
 
         Spacer(modifier = Modifier.height(27.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_dj_ai),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.radio),
+                        title = { Text(stringResource(R.string.ai_provider)) },
+                        description = { Text(djProvider) },
+                        onClick = { showDjProviderDialog = true },
+                    ),
+                    if (djProvider == "Custom") {
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.link),
+                            title = { Text(stringResource(R.string.ai_base_url)) },
+                            description = { Text(djBaseUrl.ifBlank { stringResource(R.string.not_set) }) },
+                            onClick = { showDjBaseDialog = true },
+                        )
+                    } else {
+                        null
+                    },
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.discover_tune),
+                        title = { Text(stringResource(R.string.ai_model)) },
+                        description = { Text(djModel.ifBlank { stringResource(R.string.not_set) }) },
+                        onClick = { showDjModelDialog = true },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.key),
+                        title = { Text(stringResource(R.string.radiostar_dj_ai_key)) },
+                        description = {
+                            Text(
+                                if (djKeyCipher.isNotBlank()) {
+                                    "••••••"
+                                } else {
+                                    stringResource(R.string.not_set)
+                                },
+                            )
+                        },
+                        onClick = { showDjKeyDialog = true },
+                    ),
+                ).filterNotNull(),
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         Material3SettingsGroup(
             title = stringResource(R.string.ai_translation_mode),

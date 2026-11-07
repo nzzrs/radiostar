@@ -436,7 +436,7 @@ test; the database rows, artist maps and generation path are verified.
 
 ## D-16 — Scrobbler-first listening history
 
-**Status:** read/import implemented for all three services; local JSONL store; outbound ListenBrainz planned.
+**Status:** read/import implemented for all three services; local JSONL store; outbound Last.fm, ListenBrainz and Custom implemented; Local telemetry implemented.
 
 - The local event table is not enough: a user who listens elsewhere would get
   generic recommendations. The app must import listens from Last.fm,
@@ -460,9 +460,12 @@ test; the database rows, artist maps and generation path are verified.
   starts from the newest page and stops at the saved timestamp; a local count
   below the service total triggers a repair backfill instead of re-downloading
   everything or silently keeping a capped checkpoint.
-- Outbound scrobbling stays as backup. The app both sends its own listens and
-  downloads the service's history. Last.fm outbound is the existing path;
-  ListenBrainz/self-hosted submission remains planned.
+- Outbound scrobbling is separate from import. A **Scrobble service** setting
+  chooses Off, Last.fm, ListenBrainz, Custom or External scrobbler. Off is the
+  default. External means another app already scrobbles, so RadioStar stays
+  silent while local telemetry can still run.
+- A ListenBrainz or Custom send uses `ScrobbleSink` and falls back to the
+  import token when no destination token is set.
 - Without a linked scrobbler the playlists use a generic seed and are marked
   as such; the empty or misleading history is never presented as personal.
 
@@ -473,13 +476,41 @@ test; the database rows, artist maps and generation path are verified.
 - App label is **RadioStar** (`RadioStar Debug` for the dev build); package ids
   stay `link.nzrs.radiostar` / `.dev` so debug installs do not collide with the
   upstream Metrolist package.
-- Adaptive icon foreground and monochrome mask are a minimal strawberry with
-  headphones. Source SVG: `docs/assets/radiostar-icon.svg`.
+- Adaptive icon foreground and monochrome mask use the AI-generated
+  strawberry-with-headphones artwork, cropped and background-cleaned into
+  `docs/assets/radiostar-icon.png`. The adaptive background is the artwork's
+  beige (`#D1BAAC`).
 - Settings → RadioStar includes **Credits and licences**; the full list lives in
   `docs/CREDITS.md` (Metrolist, LAION CLAP, ONNX Runtime, Media3, DPP paper,
   key profiles). Rejected MERT/Essentia licences are recorded.
 - The optional DJ AI key is encrypted with AES/GCM in the Android Keystore
   (`SecureKeyStore`); plaintext is never written to DataStore.
+
+## D-18 — History-based Weekly and Monthly Most
+
+**Status:** implemented.
+
+- The upstream Weekly Most and Monthly Most playlists are kept, not hidden.
+- Their windows are filled from both local `event` rows and imported listens.
+  Imported listens are counted by normalised title/artist, resolved to YouTube
+  songs with a bounded, cached search and inserted into Room.
+- Importing new listens clears the weekly/monthly sync stamps. Opening Stats
+  rebuilds both lists, so an import is visible without waiting a week.
+- This avoids a second set of "RadioStar Most" playlists and the consistency
+  cost of two competing statistics views.
+
+## D-19 — Local advanced telemetry
+
+**Status:** implemented, opt-in, off by default.
+
+- The event log is local JSONL in the app's private storage. Nothing is sent to
+  the laptop or any backend.
+- Events: play, pause, skip, seek and completion, with position/duration,
+  timestamp, process session, playlist and queue seed, plus song and artist.
+- The settings screen discloses the fields, shows the count and deletes the
+  file on request.
+- Telemetry never runs unless the user enables it; turning it off stops new
+  writes immediately.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

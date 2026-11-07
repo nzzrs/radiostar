@@ -137,7 +137,7 @@ import com.metrolist.music.discord.DiscordRpcManager
 import com.metrolist.music.discord.DiscordActivityBuilder
 import com.metrolist.music.discord.DiscordTemplateRenderer
 import com.metrolist.music.discord.PresenceStatus
-import com.metrolist.music.constants.EnableLastFMScrobblingKey
+import com.metrolist.music.constants.AdvancedTelemetryEnabledKey
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.HideVideoSongsKey
@@ -221,6 +221,9 @@ import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
 import com.metrolist.music.recommend.DjAiCommentator
 import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.ScrobbleDestination
+import com.metrolist.music.recommend.TelemetryEventType
+import com.metrolist.music.recommend.TelemetryStore
 import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.recommend.DjScript
 import com.metrolist.music.recommend.TempoKeyEstimator
@@ -509,6 +512,12 @@ class MusicService :
     private var latestMediaNotification: Notification? = null
 
     private var scrobbleManager: ScrobbleManager? = null
+
+    private var telemetrySong: com.metrolist.music.models.MediaMetadata? = null
+    private var telemetryStarted = false
+    private var telemetryPaused = false
+    private var telemetryPositionMs = 0L
+    private var telemetryPositionJob: Job? = null
 
     val automixItems = MutableStateFlow<List<MediaItem>>(emptyList())
 
@@ -1139,10 +1148,13 @@ class MusicService :
         }
 
         dataStore.data
-            .map { it[EnableLastFMScrobblingKey] ?: false }
+            .map { ScrobbleDestination.effective(it) }
             .debounce(300)
             .distinctUntilChanged()
-            .collect(scope) { enabled ->
+            .collect(scope) { destination ->
+                val enabled =
+                    destination != ScrobbleDestination.OFF &&
+                        destination != ScrobbleDestination.EXTERNAL
                 if (enabled && scrobbleManager == null) {
                     val delayPercent = dataStore.get(ScrobbleDelayPercentKey, LastFM.DEFAULT_SCROBBLE_DELAY_PERCENT)
                     val minSongDuration =
@@ -1150,7 +1162,8 @@ class MusicService :
                     val delaySeconds = dataStore.get(ScrobbleDelaySecondsKey, LastFM.DEFAULT_SCROBBLE_DELAY_SECONDS)
                     scrobbleManager =
                         ScrobbleManager(
-                            scope,
+                            context = this@MusicService,
+                            scope = scope,
                             minSongDuration = minSongDuration,
                             scrobbleDelayPercent = delayPercent,
                             scrobbleDelaySeconds = delaySeconds,
@@ -2574,6 +2587,15 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        finishTelemetry(
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            ) {
+                TelemetryEventType.COMPLETE
+            } else {
+                TelemetryEventType.SKIP
+            },
+        )
         // Only natural completion transitions mark the previous track as fully cached,
         // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -2600,6 +2622,11 @@ class MusicService :
         previousEpisodePosition = 0L
 
         val newMetadata = mediaItem?.metadata
+        telemetrySong = player.currentMetadata
+        telemetryStarted = false
+        telemetryPaused = false
+        telemetryPositionMs = 0L
+        if (player.isPlaying) startTelemetry()
         if (newMetadata?.isEpisode == true) {
             previousEpisodeId = newMetadata.id
             scope.launch {
@@ -2734,6 +2761,9 @@ class MusicService :
         if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
             scrobbleManager?.onSongStop()
         }
+        if (playbackState == Player.STATE_ENDED) {
+            finishTelemetry(TelemetryEventType.COMPLETE)
+        }
     }
 
     override fun onPlayWhenReadyChanged(
@@ -2843,6 +2873,17 @@ class MusicService :
         }
 
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
+            if (player.isPlaying) {
+                if (telemetryStarted && telemetryPaused) {
+                    telemetryPaused = false
+                    startTelemetry(force = true)
+                } else {
+                    startTelemetry()
+                }
+            } else if (telemetryStarted && !telemetryPaused) {
+                telemetryPaused = true
+                recordTelemetry(TelemetryEventType.PAUSE)
+            }
             updateWidgetUI(player.isPlaying)
             if (player.isPlaying) {
                 discordIntentionalDisconnect = false
@@ -5121,7 +5162,91 @@ class MusicService :
     ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
             scheduleCrossfade()
+            if (telemetryStarted && telemetrySong != null &&
+                oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+            ) {
+                telemetryPositionMs = newPosition.positionMs.coerceAtLeast(0L)
+                recordTelemetry(
+                    TelemetryEventType.SEEK,
+                    fromMs = oldPosition.positionMs,
+                    toMs = newPosition.positionMs,
+                )
+            }
         }
+    }
+
+    private fun startTelemetry(force: Boolean = false) {
+        val song = telemetrySong ?: return
+        if (telemetryStarted && !force) return
+        telemetryStarted = true
+        telemetryPaused = false
+        telemetryPositionMs = player.currentPosition.coerceAtLeast(0L)
+        recordTelemetry(
+            TelemetryEventType.PLAY,
+            positionMs = telemetryPositionMs,
+        )
+        if (telemetryPositionJob == null) {
+            telemetryPositionJob =
+                scope.launch {
+                    while (isActive) {
+                        delay(1_000)
+                        if (telemetryStarted) {
+                            telemetryPositionMs = player.currentPosition.coerceAtLeast(0L)
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun finishTelemetry(type: TelemetryEventType) {
+        if (telemetrySong == null || !telemetryStarted) {
+            telemetrySong = null
+            telemetryStarted = false
+            telemetryPaused = false
+            return
+        }
+        recordTelemetry(
+            type,
+            positionMs = telemetryPositionMs,
+            completed = type == TelemetryEventType.COMPLETE,
+        )
+        telemetrySong = null
+        telemetryStarted = false
+        telemetryPaused = false
+        telemetryPositionJob?.cancel()
+        telemetryPositionJob = null
+    }
+
+    private fun recordTelemetry(
+        type: TelemetryEventType,
+        positionMs: Long? = null,
+        durationMs: Long? = null,
+        fromMs: Long? = null,
+        toMs: Long? = null,
+        completed: Boolean = false,
+    ) {
+        val song = telemetrySong ?: return
+        val playlist =
+            when (val queue = currentQueue) {
+                is ListQueue -> queue.title
+                else -> null
+            }
+        val seed = runCatching { player.getMediaItemAt(0).mediaId }.getOrNull()
+        val event =
+            TelemetryStore.Event(
+                type = type,
+                songId = song.id,
+                title = song.title,
+                artist = song.artists.joinToString { it.name },
+                playlist = playlist,
+                seed = seed,
+                positionMs = positionMs ?: telemetryPositionMs,
+                durationMs = durationMs ?: song.duration?.toLong()?.times(1000),
+                fromMs = fromMs,
+                toMs = toMs,
+                completed = completed,
+            )
+        scope.launch(Dispatchers.IO) { TelemetryStore.record(this@MusicService, event) }
     }
 
     private fun scheduleCrossfade() {

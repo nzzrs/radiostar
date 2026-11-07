@@ -8,6 +8,8 @@ package com.metrolist.music.recommend
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import com.metrolist.music.BuildConfig
+import com.metrolist.music.constants.LastMonthlyMostPlaylistSyncKey
+import com.metrolist.music.constants.LastWeeklyMostPlaylistSyncKey
 import com.metrolist.music.constants.ScrobblerBaseUrlKey
 import com.metrolist.music.constants.ScrobblerCheckpointsKey
 import com.metrolist.music.constants.ScrobblerLastFmUserKey
@@ -168,6 +170,15 @@ object ScrobblerImporter {
                     ScrobblerService.NONE -> Unit
                 }
                 if (complete) saveCheckpoint(context, config.service, maxSeen)
+                if (complete) {
+                    // Imported history may already exist from an older build;
+                    // rebuild the history-based Most playlists once even when
+                    // this incremental pass found nothing new.
+                    context.dataStore.edit {
+                        it[LastWeeklyMostPlaylistSyncKey] = 0L
+                        it[LastMonthlyMostPlaylistSyncKey] = 0L
+                    }
+                }
                 ListenImportResult(
                     added = added,
                     fetched = fetched,

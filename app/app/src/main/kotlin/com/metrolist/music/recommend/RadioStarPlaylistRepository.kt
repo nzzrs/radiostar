@@ -148,10 +148,20 @@ class RadioStarPlaylistRepository
                     .sortedByDescending { it.listenedAt }
                     .take(120)
 
-            val anchorIds =
-                history.take(anchors).map { it.song.id }.ifEmpty {
-                    resolveImportedAnchors(imported.take(anchors)).map { it.id }
+            // Local events and imported listens both seed the radio. Without
+            // this, a fresh install that only imported history would build
+            // playlists from an empty local event table.
+            val localAnchors = history.take(anchors).map { it.song.id }
+            val importedAnchors =
+                if (imported.isNotEmpty()) {
+                    resolveImportedAnchors(imported.take(maxOf(2, anchors / 2)))
+                } else {
+                    emptyList()
                 }
+            val anchorIds =
+                (localAnchors + importedAnchors.map { it.id })
+                    .distinct()
+                    .take(anchors + 2)
             if (anchorIds.isEmpty()) {
                 Timber.tag(TAG).i("no anchors for %d-day playlists", days)
                 return
