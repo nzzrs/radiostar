@@ -111,6 +111,13 @@ import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarDjFarKey
+import com.metrolist.music.constants.RadioStarDjKnownKey
+import com.metrolist.music.constants.RadioStarDjLikelyKey
+import com.metrolist.music.constants.RadioStarDjPersonaKey
+import com.metrolist.music.recommend.DjConfig
+import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
@@ -676,6 +683,13 @@ fun HomeScreen(
     val pinnedSpeedDialItems by viewModel.pinnedSpeedDialItems.collectAsStateWithLifecycle()
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
     val radioStarCards by viewModel.radioStarCards.collectAsStateWithLifecycle()
+    var djPersona by rememberEnumPreference(RadioStarDjPersonaKey, DjPersona.CHERRY)
+    var djKnown by rememberEnumPreference(RadioStarDjKnownKey, DjPresence.SOMETIMES)
+    var djFar by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
+    var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
+    var showDjPanel by remember { mutableStateOf(false) }
+    val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
+    val djScope = rememberCoroutineScope()
 
     // Official podcast API data
     val savedPodcastShows by viewModel.savedPodcastShows.collectAsStateWithLifecycle()
@@ -1205,6 +1219,34 @@ fun HomeScreen(
                         cards = radioStarCards,
                         onOpen = { id -> navController.navigate("local_playlist/$id") },
                     )
+                }
+
+                item(key = "radiostar_dj") {
+                    DjHomeCard(djConfig) { showDjPanel = true }
+                    if (showDjPanel) {
+                        DjPanelDialog(
+                            config = djConfig,
+                            onConfigChange = { config ->
+                                djPersona = config.persona
+                                djKnown = config.known
+                                djFar = config.far
+                                djLikely = config.likely
+                            },
+                            onDismiss = { showDjPanel = false },
+                            onStart = {
+                                showDjPanel = false
+                                djScope.launch {
+                                    val songs = viewModel.buildDjQueue(djConfig)
+                                    if (songs.isNotEmpty()) {
+                                        playerConnection.service?.playDjSession(
+                                            songs.map { it.toMediaItem() },
+                                            djConfig.persona,
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
 
                 if (isLoading && homePage?.chips.isNullOrEmpty()) {

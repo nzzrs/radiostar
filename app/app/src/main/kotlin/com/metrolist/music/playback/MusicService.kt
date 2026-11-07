@@ -218,6 +218,7 @@ import com.metrolist.music.constants.RadioStarProfilesKey
 import com.metrolist.music.recommend.AudioFeatures
 import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
+import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjScript
 import com.metrolist.music.recommend.TempoKeyEstimator
 import org.json.JSONObject
@@ -4150,6 +4151,29 @@ class MusicService :
             .onFailure { Timber.tag("RadioStarTap").e(it, "embedder init failed") }
             .getOrNull()
 
+    /** User pressed Start DJ. This is the only place a session replaces the queue. */
+    fun playDjSession(items: List<MediaItem>, persona: DjPersona) {
+        if (items.isEmpty()) return
+        scope.launch(Dispatchers.Main) {
+            player.setMediaItems(items, 0, 0L)
+            player.prepare()
+            player.play()
+            radioStarDj = true
+            announcedPair = null
+            val announcer =
+                djAnnouncer
+                    ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
+                        .also { djAnnouncer = it }
+            announcer.setVoice(persona.pitch, persona.rate)
+            announcer.prepare()
+            announcer.announce(
+                "${persona.displayName}. Let the beat play.",
+                "dj:intro:${System.nanoTime()}",
+            )
+            Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
+        }
+    }
+
     /** Mirrors the DJ preference into a volatile field for the player thread. */
     private fun observeRadioStarSettings() {
         applicationScope.launch {
@@ -4201,7 +4225,7 @@ class MusicService :
 
         val announcer =
             djAnnouncer
-                ?: DjAnnouncer(this) { ducked ->
+                ?: DjAnnouncer(this@MusicService) { ducked ->
                     djHandler.post { applyDjDuck(ducked) }
                 }.also { djAnnouncer = it }
         announcer.prepare()

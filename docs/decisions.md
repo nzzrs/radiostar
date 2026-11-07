@@ -340,7 +340,7 @@ that already have a profile as a harmonic path; if only RMS is known it uses
 the energy arc. Unknown candidates keep their DPP position.
 
 Tests: 26 cases across `MusicalKeyTest`, `TempoKeyEstimatorTest` and
-`AudioOrdererTest`; the recommendation suite is now 91 tests.
+`AudioOrdererTest`; the recommendation suite is now 95 tests.
 
 **Limit.** Candidate tracks are text-only, so their tempo and key are unknown
 until they play. Harmony therefore matters most after a few listens; it cannot
@@ -383,7 +383,7 @@ DJ Cherry is **not** a playlist. It is a DJ session (D-15).
   `local_playlist/{id}`. There is no play-on-shelf action and no queue edit.
 - `RadioStarPlaylistSpecsTest` covers the six ids, names, horizons and sizes;
   `PlaylistScheduleTest` covers the once-per-period rule. The recommendation
-  suite is now 91 tests.
+  suite is now 95 tests.
 
 Device evidence (A52s, laptop server on LAN):
 
@@ -414,7 +414,7 @@ test; the database rows, artist maps and generation path are verified.
 
 ## D-15 — DJ Cherry is a session, not a playlist
 
-**Status:** design approved in `docs/architecture.md`; implementation pending.
+**Status:** implemented MVP in `feature/dj-cherry`; candidate pool reused from generated playlists.
 
 - DJ Cherry left the generated-playlist set and the playlist shelf.
 - Home gets a smaller DJ block, separate from the playlists: a fruit emoji,
@@ -431,7 +431,7 @@ test; the database rows, artist maps and generation path are verified.
 
 ## D-16 — Scrobbler-first listening history
 
-**Status:** architecture in `docs/architecture.md`; implementation pending.
+**Status:** read/import implemented for all three services; local JSONL store; outbound ListenBrainz planned.
 
 - The local event table is not enough: a user who listens elsewhere would get
   generic recommendations. The app must import listens from Last.fm,
@@ -444,6 +444,19 @@ test; the database rows, artist maps and generation path are verified.
   downloads the service's history.
 - Without a linked scrobbler the playlists use a generic seed and are marked
   as such; the empty or misleading history is never presented as personal.
+
+## D-17 — RadioStar brand
+
+**Status:** implemented.
+
+- App label is **RadioStar** (`RadioStar Debug` for the dev build); package ids
+  stay `link.nzrs.radiostar` / `.dev` so debug installs do not collide with the
+  upstream Metrolist package.
+- Adaptive icon foreground and monochrome mask are a minimal strawberry with
+  headphones. Source SVG: `docs/assets/radiostar-icon.svg`.
+- Settings → RadioStar includes **Credits and licences**; the full list lives in
+  `docs/CREDITS.md` (Metrolist, LAION CLAP, ONNX Runtime, Media3, DPP paper,
+  key profiles). Rejected MERT/Essentia licences are recorded.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

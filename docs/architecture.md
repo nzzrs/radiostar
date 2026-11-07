@@ -148,12 +148,12 @@ models, storing or redistributing audio, a web player.
 
 ```text
 app/
-├── ui/            Compose screens, Home shelf, DJ panel [planned]
+├── ui/            Compose screens, Home shelf, DJ panel
 ├── viewmodels/    HomeViewModel, settings
 ├── recommend/     DPP, MixBuilder, session, tempo/key, playlist repository
 ├── playback/      MediaService, AudioTap, DjAnnouncer, queue
 ├── db/            Room entities/DAOs (songs, events, playlists)
-├── scrobble/      Last.fm API, scrobbler import [import planned]
+├── scrobble/      Last.fm API, scrobbler import adapters
 server/            Python text tower (/health, /embed, SQLite cache)
 scripts/           ListenBrainz CSV export tool
 spike/             archived research evidence
@@ -196,12 +196,13 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
   - `song`, `artist`, `song_artist_map` — library and generated songs.
   - `event` — local plays (songId, timestamp, playTime).
   - `playlist`, `playlist_song_map` — normal playlists, including generated.
-  - `imported_listen` — **[planned]** external listens with service, external
-    id, title, artist, album, timestamp, fingerprint, resolved video id.
-  - `scrobble_checkpoint` or DataStore keys — **[planned]** per-service cursor.
+  - `radiostar_listens.jsonl` — **implemented** append-only external listens,
+    deduplicated by a normalised fingerprint; malformed lines are skipped.
+  - `scrobblerCheckpoints` in DataStore — **implemented** per-service cursor;
+    a Room table is a future migration if the file grows large.
 - DataStore:
   - `RadioStarDjKey`, `RadioStarServerKey`, `RadioStarHistoryKey`,
-    `RadioStarProfilesKey`, playlist stamps, DJ settings **[planned]**.
+    `RadioStarProfilesKey`, playlist stamps, DJ settings.
 
 ### 5.5 External text tower (`server/`)
 
@@ -218,7 +219,7 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
 app start / Home init
   → PlaylistSchedule.plan(today, dailyStamp, weeklyStamp)
   → none due? load cards from Room and stop
-  → due? build history from local events + imported listens [import planned]
+  → due? build history from local events + imported listens
   → anchors → YouTube radio → embed pool (chunks of 48)
   → centroid → MixBuilder per spec → write fixed playlist ids
   → write daily/weekly stamps
@@ -247,7 +248,7 @@ Properties:
 - Ordering: harmony (BPM/key/RMS) for tracks with persisted profiles, else
   energy arc, else DPP score. Unknown candidates keep their slot.
 
-### 6.3 Scrobbler import **[planned]**
+### 6.3 Scrobbler import
 
 ```text
 on app start / manual import
@@ -265,9 +266,14 @@ Adapters:
 
 | Service | Read | Write / backup |
 | --- | --- | --- |
-| Last.fm | `user.getRecentTracks` (extended, paged) | `track.scrobble`, `track.updateNowPlaying` |
-| ListenBrainz | `/1/user/{user}/listens` (`max_ts`, count) | `/1/submit-listens` |
-| Self-hosted | same ListenBrainz-compatible endpoints on a base URL | same |
+| Last.fm | `user.getRecentTracks` (extended, paged) — implemented | `track.scrobble`, `track.updateNowPlaying` — existing |
+| ListenBrainz | `/1/user/{user}/listens` (`max_ts`, count) — implemented | `/1/submit-listens` — **[planned]** |
+| Self-hosted | same ListenBrainz-compatible endpoints on a base URL — implemented | same — **[planned]** |
+
+The RadioStar settings screen selects the service, username, base URL and
+token, and runs the import with a visible result. The importer caps a run at
+100 pages, validates every row, uses three bounded retries per page and does
+not advance the checkpoint when the run fails.
 
 Resilience rules:
 
@@ -277,7 +283,8 @@ Resilience rules:
 - Validate timestamps (reject future beyond skew, keep epoch ordering).
 - Imported rows are immutable; a changed source row is a new fingerprint only
   when its timestamp differs.
-- Tokens never logged; stored in Keystore-wrapped preferences [planned].
+- Tokens never logged. They live in device DataStore; wrapping them with the
+  Android Keystore is a hardening step **[planned]**.
 
 Merging with recommendations:
 
@@ -301,7 +308,7 @@ Outbound backup:
 - ListenBrainz/self-hosted submission and an offline retry queue are
   **[planned]**. The app both sends its listens and downloads history.
 
-### 6.4 DJ Cherry **[planned]**
+### 6.4 DJ Cherry
 
 Entry point: a compact Home block separate from playlists:
 
@@ -322,9 +329,10 @@ Panel controls:
   stop for accessibility.
 - Personas: 🍒 Cherry (default), 🍋 Lemon, 🫐 Berry, 🍌 Banana, 🍓 Strawberry,
   🥥 Coco. Each has a short personality, TTS pitch/rate and wording.
-- Start is explicit. The DJ builds a queue from the three weights, plays it,
-  and speaks between tracks; ducking and screen-off behaviour reuse
-  `DjAnnouncer`.
+- Start is explicit. The DJ builds an on-demand queue from the generated
+  playlists: Jam is familiar, Discover is likely, Explore is far. The weights
+  pick buckets; duplicates and the 20-track cap are enforced. It then plays and
+  speaks; ducking and screen-off behaviour reuse `DjAnnouncer`.
 - Persona affects voice and copy only, never the candidate math.
 - Leaving the session returns to normal playback; background generation and
   playlists never touch the queue.
@@ -419,7 +427,12 @@ See `docs/decisions.md`:
   pending.
 - Last.fm API keys are build-time; self-hosted auth is not implemented.
 - Release builds are unsigned; no store distribution.
-- DJ wheel and personas are designed but not implemented.
+- DJ personas and the panel are implemented; the candidate pool is the
+  generated playlists, not a dedicated DJ candidate engine yet.
+- ListenBrainz/self-hosted outbound submission is not implemented; Last.fm
+  outbound scrobbling is the existing path.
+- Imported listens are stored as JSONL, not yet a Room table; very large
+  histories will need the migration.
 - Testing is mostly JVM + on-device logs; no Compose UI tests yet.
 
 ## 12. Glossary
