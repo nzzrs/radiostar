@@ -270,10 +270,14 @@ Adapters:
 | ListenBrainz | `/1/user/{user}/listens` (`max_ts`, count) — implemented | `/1/submit-listens` — **[planned]** |
 | Self-hosted | same ListenBrainz-compatible endpoints on a base URL — implemented | same — **[planned]** |
 
-The RadioStar settings screen selects the service, username, base URL and
-token, and runs the import with a visible result. The importer caps a run at
-100 pages, validates every row, uses three bounded retries per page and does
-not advance the checkpoint when the run fails.
+The RadioStar settings screen selects the service and shows only the fields
+that service needs. Before downloading, it asks the service for the total
+listen count; the progress bar and the `fetched / total` label use that number.
+A run that ends short is marked incomplete, keeps its checkpoint and retries;
+if the local per-service count is below the service total, the importer
+rebuilds from zero (repairing old capped runs). The sync frequency is
+startup, 15 min, 1 h, 6 h, daily, weekly or off. A completed import requests an
+immediate playlist refresh.
 
 Resilience rules:
 
@@ -333,6 +337,10 @@ Panel controls:
   playlists: Jam is familiar, Discover is likely, Explore is far. The weights
   pick buckets; duplicates and the 20-track cap are enforced. It then plays and
   speaks; ducking and screen-off behaviour reuse `DjAnnouncer`.
+- Optional AI commentary sends the persona plus previous/next track to the
+  OpenAI-compatible provider selected in the panel (OpenRouter, OpenAI or a
+  custom endpoint configured in Settings → AI). If the call fails, the template
+  announcement is spoken.
 - Persona affects voice and copy only, never the candidate math.
 - Leaving the session returns to normal playback; background generation and
   playlists never touch the queue.

@@ -172,6 +172,8 @@ object ScrobblerImporter {
                     message =
                         when {
                             fetched == 0 -> "No new listens"
+                            total != null && complete -> "Imported $added new; checked $fetched/$total"
+                            total != null -> "Imported $added new; checked $fetched/$total; incomplete, will retry"
                             complete -> "Imported $added of $fetched"
                             else -> "Imported $added of $fetched; incomplete, will retry"
                         },
