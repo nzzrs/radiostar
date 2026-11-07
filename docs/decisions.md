@@ -440,8 +440,19 @@ test; the database rows, artist maps and generation path are verified.
 - Import is paged, resumable and idempotent: a checkpoint per service, a
   unique fingerprint per listen, validation of required fields, bounded
   retries with backoff, and no stamp advance on failure.
+- Before downloading, the importer queries the service's total listen count
+  (Last.fm `user.getInfo`, ListenBrainz/self-hosted `listen-count`). The UI
+  shows `fetched / total` with a progress bar. A run only marks the checkpoint
+  complete when the fetched count reaches the total (with a small tolerance);
+  an old capped run is detected by comparing the local per-service count with
+  the total and is rebuilt from zero.
+- Sync frequency is configurable: startup, 15 min, 1 h, 6 h, daily, weekly or
+  off. A completed import immediately requests playlist regeneration through
+  `RadioStarRefreshBus`; daily/weekly stamps are bypassed for that explicit
+  refresh.
 - Outbound scrobbling stays as backup. The app both sends its own listens and
-  downloads the service's history.
+  downloads the service's history. Last.fm outbound is the existing path;
+  ListenBrainz/self-hosted submission remains planned.
 - Without a linked scrobbler the playlists use a generic seed and are marked
   as such; the empty or misleading history is never presented as personal.
 

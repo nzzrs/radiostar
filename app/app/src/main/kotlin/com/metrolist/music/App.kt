@@ -33,6 +33,7 @@ import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
+import com.metrolist.music.recommend.ScrobblerSync
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.InnerTubeXPlayer
@@ -99,6 +100,9 @@ class App :
         // local playlist rows; it never changes the playback queue.
         applicationScope.launch(Dispatchers.IO) {
             radioStarRepository.refreshIfDue()
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            ScrobblerSync.syncIfDue(this@App)
         }
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader

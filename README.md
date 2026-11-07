@@ -22,9 +22,11 @@ and their weekly versions, rebuilt once per day or week, plus a separate
 **DJ Cherry** block with a wheel for familiar/far/likely tracks and fruit
 personas. The app never changes the queue outside an explicit DJ start.
 
-`Settings → RadioStar` also imports listens from Last.fm, ListenBrainz or a
-self-hosted compatible server into the phone; imported listens feed the taste
-centroid and discovery exclusions.
+`Settings → RadioStar` imports listens from Last.fm, ListenBrainz or a
+self-hosted compatible server into the phone, with a service picker, a
+`fetched / total` progress bar, sync frequency and automatic playlist refresh
+after a complete import. Imported listens feed the taste centroid and
+discovery exclusions.
 
 ## Build and run
 
