@@ -1233,6 +1233,20 @@ fun HomeScreen(
                     RadioStarShelf(
                         cards = radioStarCards,
                         onOpen = { id -> navController.navigate("local_playlist/$id") },
+                        onPlay = { card ->
+                            djScope.launch {
+                                val songs =
+                                    database
+                                        .playlistSongs(card.id)
+                                        .first()
+                                        .map { it.song.toMediaItem() }
+                                if (songs.isNotEmpty()) {
+                                    playerConnection.playQueue(
+                                        ListQueue(title = card.title, items = songs),
+                                    )
+                                }
+                            }
+                        },
                     )
                 }
 
