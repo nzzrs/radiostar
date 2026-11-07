@@ -18,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,13 +72,6 @@ fun ScrobblingSettings(navController: NavController) {
             Modifier.windowInsetsPadding(
                 LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top),
             ),
-        )
-
-        Text(
-            text = stringResource(R.string.radiostar_scrobbling_desc),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
 
         Material3SettingsGroup(
@@ -153,25 +145,6 @@ fun ScrobblingSettings(navController: NavController) {
                         -> Unit
                     }
                 },
-        )
-
-        Text(
-            text =
-                when (destination) {
-                    ScrobbleDestination.OFF ->
-                        stringResource(R.string.radiostar_scrobble_off_hint)
-                    ScrobbleDestination.EXTERNAL ->
-                        stringResource(R.string.radiostar_scrobble_external_hint)
-                    ScrobbleDestination.LASTFM ->
-                        stringResource(R.string.radiostar_scrobble_lastfm_hint)
-                    ScrobbleDestination.LISTENBRAINZ ->
-                        stringResource(R.string.radiostar_scrobble_listenbrainz_hint)
-                    ScrobbleDestination.CUSTOM ->
-                        stringResource(R.string.radiostar_scrobble_custom_hint)
-                },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
 
         Spacer(Modifier.height(16.dp))

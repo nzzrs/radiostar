@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,13 +77,6 @@ fun RadioStarScreen(navController: NavController) {
             ),
         )
 
-        Text(
-            text = stringResource(R.string.radiostar_description),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-        )
-
         Material3SettingsGroup(
             title = stringResource(R.string.radiostar_engine),
             items =
@@ -103,19 +95,9 @@ fun RadioStarScreen(navController: NavController) {
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.sync),
                         title = { Text(stringResource(R.string.radiostar_refresh_now)) },
-                        description = { Text(stringResource(R.string.radiostar_refresh_now_desc)) },
                         onClick = { RadioStarRefreshBus.request() },
                     ),
                 ),
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = stringResource(R.string.radiostar_how_it_works),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
         Spacer(Modifier.height(16.dp))
