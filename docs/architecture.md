@@ -1,7 +1,10 @@
 # RadioStar — Architecture (arc42)
 
-Status: living document, 2026-11-06. It describes the implemented system and
+Status: living document, 2026-11-07. It describes the implemented system and
 separates what is still planned. Planned items are marked **[planned]**.
+
+The C4 context, container, component, code, sequence and deployment views are
+in [`c4-model.md`](c4-model.md).
 
 ## 1. Introduction and Goals
 
@@ -17,9 +20,9 @@ delivered as playlists, never by changing what the user chose to play.
 - Generate **playlists**, not playback modes:
   - Daily Discover, Daily Jam, Daily Explore.
   - Weekly Discover, Weekly Jam, Weekly Explore.
-  - DJ Cherry is a separate on-demand DJ session.
-- A daily list is generated once per calendar day; a weekly list once per ISO
-  week. They never regenerate continuously.
+  - AI DJ is an optional, on-demand DJ session; DJ Cherry is one persona.
+- A daily list is generated once per 06:00-to-06:00 local day; a weekly list
+  once per ISO week. They never regenerate continuously.
 - Import listening history from an external scrobbler so recommendations are
   not blind to listening outside the app.
 - Optionally use a laptop for the CLAP text tower; the phone must still work
@@ -127,11 +130,11 @@ models, storing or redistributing audio, a web player.
 2. **Playlists are artifacts, not modes.** Generation writes ordinary local
    playlists with fixed ids. Playback only starts when the user opens one.
 3. **Scheduled, idempotent generation.** `PlaylistSchedule` compares the
-   current date/week with success stamps. A run replaces the same six rows and
-   never advances the stamp on failure.
-4. **Scrobbler-first history.** Before generating, merge local events with
-   imported listens. Without an external source, use a generic seed and label
-   the result as generic instead of pretending it is personal.
+   06:00-based playlist day and ISO week with success stamps. A run replaces
+   the same six rows and never advances the stamp on failure.
+4. **Imported-first history.** Before generating, use imported listens as the
+   primary anchors and taste signal. Local Metrolist events are the fallback
+   when no imported history exists.
 5. **Frozen models, no training.** CLAP audio/text embeddings, DPP diversity,
    session EMA, tempo/key DSP, artist caps.
 6. **Explicit DJ.** The DJ builds and plays a queue only after an explicit
@@ -144,16 +147,21 @@ models, storing or redistributing audio, a web player.
 
 ## 5. Building Block View
 
-### 5.1 Level 1
+The C4 views for this section are in [`c4-model.md`](c4-model.md):
+Level 2 container and Level 3 component diagrams. The C4 Level 1 context is
+also mirrored in Section 3.1 below.
+
+### 5.1 Building block level 1 — repository layout
 
 ```text
 app/
 ├── ui/            Compose screens, Home shelf, DJ panel
 ├── viewmodels/    HomeViewModel, settings
 ├── recommend/     DPP, MixBuilder, session, tempo/key, playlist repository
-├── playback/      MediaService, AudioTap, DjAnnouncer, queue
+├── playback/      MusicService, TapAudioProcessor, DjAnnouncer, queue
 ├── db/            Room entities/DAOs (songs, events, playlists)
-├── scrobble/      Last.fm API, scrobbler import adapters
+├── lastfm/        Last.fm Web API client
+├── recommend/     ScrobblerImporter/Sync, ScrobbleSink, TelemetryStore
 server/            Python text tower (/health, /embed, SQLite cache)
 scripts/           ListenBrainz CSV export tool
 spike/             archived research evidence
@@ -169,15 +177,17 @@ spike/             archived research evidence
 | `TempoKeyEstimator` | FFT tempo and chroma key, pure Kotlin. |
 | `MusicalKey` / `AudioOrderer` | Camelot distance and harmonic path. |
 | `EmbeddingClient` | Chunked `/embed` HTTP client with 180 s timeout. |
-| `RadioStarPlaylistRepository` | Six-playlist generation, persistence, schedules. |
-| `PlaylistSchedule` | Once-per-day / once-per-ISO-week rule. |
+| `RadioStarPlaylistRepository` | Six-playlist generation, persistence, schedules, DJ queue. |
+| `PlaylistSchedule` | 06:00 playlist day and once-per-ISO-week rule. |
+| `ImportedMostSongs` | Imported top tracks, cached YouTube resolution, Weekly/Monthly Most merge. |
+| `ListenStore` | Append-only JSONL imported listens, dedupe and count. |
 | `ListenHistory` | Normalised `title|primary artist` keys. |
 
 ### 5.3 Playback and analysis (`playback/`)
 
 - `MusicService`: MediaSessionService; owns the player, tap, embedder, DJ
   announcer, settings mirror.
-- `AudioTap`: ring buffer, mono downmix, 10 s windows, RMS; never writes audio.
+- `TapAudioProcessor`: ring buffer, mono downmix, 10 s windows, RMS; never writes audio.
 - `ClapEmbedderImpl`: ONNX Runtime, resampling, one window in flight.
 - `DjAnnouncer`: platform TTS, 8 s lookahead, 22% duck, partial wake lock.
 
@@ -196,13 +206,16 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
   - `song`, `artist`, `song_artist_map` — library and generated songs.
   - `event` — local plays (songId, timestamp, playTime).
   - `playlist`, `playlist_song_map` — normal playlists, including generated.
-  - `radiostar_listens.jsonl` — **implemented** append-only external listens,
-    deduplicated by a normalised fingerprint; malformed lines are skipped.
-  - `scrobblerCheckpoints` in DataStore — **implemented** per-service cursor;
-    a Room table is a future migration if the file grows large.
+- JSONL:
+  - `radiostar_listens.jsonl` — imported listens, append-only, deduplicated.
+  - `radiostar_telemetry.jsonl` — local opt-in play/pause/skip/seek/complete events.
 - DataStore:
-  - `RadioStarDjKey`, `RadioStarServerKey`, `RadioStarHistoryKey`,
-    `RadioStarProfilesKey`, playlist stamps, DJ settings.
+  - `RadioStarDjKey` (AI DJ on/off), `RadioStarServerKey`,
+    `RadioStarProfilesKey`, playlist stamps, per-service import checkpoints,
+    last result/total/check time, DJ provider/model, destination and telemetry
+    preferences.
+- Android Keystore:
+  - AES/GCM key material for the DJ API key (`SecureKeyStore`).
 
 ### 5.5 External text tower (`server/`)
 
@@ -213,11 +226,13 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
 
 ## 6. Runtime View
 
+C4 dynamic views: [`c4-model.md` §4](c4-model.md#4-level-4--code-and-dynamic-views).
+
 ### 6.1 Daily and weekly playlists
 
 ```text
-app start / Home init
-  → PlaylistSchedule.plan(today, dailyStamp, weeklyStamp)
+app start / Home init / 10-minute tick
+  → PlaylistSchedule.plan(06:00 playlist day, dailyStamp, weeklyStamp)
   → none due? load cards from Room and stop
   → due? build history from local events + imported listens
   → anchors → YouTube radio → embed pool (chunks of 48)
@@ -231,9 +246,9 @@ Properties:
 - Daily and weekly are independent; a new day does not rebuild weekly lists.
 - Stamps are written only after the group succeeds.
 - The same six ids are replaced, never duplicated.
-- No periodic loop. If the app stays open across midnight, the next Home
-  recreation or process start checks again; an optional WorkManager job may be
-  added for exact midnight refresh **[planned]**.
+- The application scope checks every 10 minutes while the process is alive. A
+  session left open across 06:00 rebuilds the daily lists without a restart.
+  A process start also checks immediately.
 - Fixed ids: `LP_RS_DAILY_DISCOVER`, `LP_RS_DAILY_JAMS`,
   `LP_RS_DAILY_EXPLORE`, `LP_RS_WEEKLY_DISCOVER`, `LP_RS_WEEKLY_JAMS`,
   `LP_RS_WEEKLY_EXPLORE`.
@@ -301,12 +316,12 @@ Resilience rules:
 
 Merging with recommendations:
 
-- `imported_listen` rows contribute title/artist text to the taste centroid and
-  to the heard-key exclusion set.
-- Local `event` rows remain the source of playable history for Jam anchors.
-- Imported top tracks are resolved to YouTube ids via search (bounded, cached)
-  and used as extra radio anchors, so a fresh install with only imported
-  history still generates personal playlists.
+- Imported listens contribute title/artist text to the taste centroid, the
+  heard-key exclusion set and the primary radio anchors.
+- Imported top tracks are resolved to YouTube ids via a bounded, cached search.
+  Local `event` rows are only the fallback when no imported anchors resolve.
+- A window with no imported listens falls back to the newest imported history
+  before considering the local Metrolist table.
 - The upstream **Weekly Most** and **Monthly Most** playlists merge the top
   imported tracks for their window ahead of local `event` rows. Importing new
   listens clears their sync stamps, so opening Stats rebuilds them.
@@ -333,16 +348,17 @@ Outbound scrobbling:
 - A destination token falls back to the import token, so a single ListenBrainz
   token can cover both directions. Offline retry is still a follow-up.
 
-### 6.4 DJ Cherry
+### 6.4 AI DJ session
 
-Entry point: a compact Home block separate from playlists:
+Entry point: a compact Home block separate from playlists, present only when
+**Settings → RadioStar → AI DJ** is on:
 
 ```text
 🍒  DJ Cherry
-    Let the DJ play the beat
+    Start a new session
 ```
 
-Tapping the card starts the session; the gear opens the DJ settings panel.
+Tapping the card starts a fresh session; the gear opens the DJ settings panel.
 
 Panel controls:
 
@@ -383,10 +399,14 @@ Panel controls:
 - Leaving the session returns to normal playback; background generation and
   playlists never touch the queue.
 
-### 6.5 DJ voice (current)
+### 6.5 DJ speech and speaking overlay
 
 - Platform TTS, 8 s lookahead before the next track.
 - Duck player to 22%, partial wake lock, restore effective volume.
+- The session intro is spoken before playback starts; the player remains
+  paused until the utterance completion callback.
+- The overlay is shown only while the player sheet is expanded. Swipe down or
+  Back dismisses it for the current utterance.
 - Screen-off verified: announce → duck → utterance → done → restore.
 
 ### 6.6 Advanced telemetry
@@ -409,6 +429,8 @@ recommender can use to distinguish rejection from satisfaction.
 
 ## 7. Deployment View
 
+C4 deployment diagram: [`c4-model.md` §5](c4-model.md#5-deployment-view).
+
 - **Phone**: one APK, arm64-v8a, debug `link.nzrs.radiostar.dev`, release
   `link.nzrs.radiostar` (unsigned in this repository).
 - **Laptop**: Python 3.12 venv, `server/app.py`, port 8787. LAN or Tailscale;
@@ -427,8 +449,8 @@ recommender can use to distinguish rejection from satisfaction.
 - Scrobbler tokens are device-local; redact them from logs and crash reports.
 - Cleartext HTTP is allowed only for the user's own embedding server; the
   network security config permits LAN/Tailscale.
-- No analytics SDK; telemetry is local unless the user opts into an external
-  service.
+- No analytics SDK; advanced telemetry is local-only and opt-in. There is no
+  external upload path in this build.
 
 ### 8.2 Error handling
 
@@ -463,38 +485,43 @@ See `docs/decisions.md`:
 - D-12: DJ voice and ListenBrainz CSV import.
 - D-13: on-device tempo/key and audio ordering.
 - D-14: playlists, not playback modes; six scheduled playlists.
-- D-15: DJ Cherry is a session, not a playlist.
-- D-16: scrobbler-first history.
+- D-15: AI DJ is a session, not a playlist.
+- D-16: imported-first history and scrobble destination.
+- D-17: RadioStar brand and icon.
+- D-18: 06:00 playlist day and imported-first mixes.
+- D-19: history-based Weekly/Monthly Most.
+- D-20: local advanced telemetry.
 
 ## 10. Quality Requirements
 
 | Scenario | Expected |
 | --- | --- |
 | Open Home five times on the same day | Only the first check generates daily lists; the rest load the existing rows. |
-| Wait until next day | Daily lists regenerate once; weekly stay. |
+| Wait until the next 06:00 | Daily lists regenerate once; weekly stay. |
 | Kill the app during generation | Stamp not advanced; next launch retries; old playlists remain. |
 | Import 5,000 Last.fm scrobbles | Paged, deduped, resumable; no duplicate rows; UI remains responsive. |
 | Lose network mid-import | Checkpoint stays at last committed page; retry resumes. |
 | Play a playlist | Native queue; automatic generation does not modify it. |
-| Start DJ | Explicit queue; TTS speaks; no effect outside the session. |
+| Start DJ | Fresh queue, prepared paused; intro speaks first; no effect outside the session. |
 | No scrobbler, no history | Empty shelf or clearly marked generic lists. |
 | Embedding server offline | Playback unaffected; old playlists remain; new generation skipped. |
 
 ## 11. Risks and Technical Debt
 
-- **Cold-start blindness** until scrobbler import exists; current local-only
-  history is a product risk.
+- **Cold-start blindness** for users with neither imported nor local history;
+  the generic seed/label path remains a product risk.
 - Text-only candidates cannot have BPM/key until played; harmonic ordering is
   partial.
 - The laptop dependency limits playlist generation away from home.
 - Generated playlist rows can accumulate orphan songs; a cleanup policy is
   pending.
-- Last.fm API keys are build-time; self-hosted auth is not implemented.
+- Last.fm API keys are build-time; a user cannot paste a Last.fm key in the
+  current UI. ListenBrainz and self-hosted use a token.
 - Release builds are unsigned; no store distribution.
 - DJ personas and the panel are implemented; the candidate pool is the
   generated playlists, not a dedicated DJ candidate engine yet.
-- ListenBrainz/self-hosted outbound submission is not implemented; Last.fm
-  outbound scrobbling is the existing path.
+- Outbound Last.fm, ListenBrainz and Custom are implemented; offline retry is
+  still a follow-up.
 - Imported listens are stored as JSONL, not yet a Room table; very large
   histories will need the migration.
 - Testing is mostly JVM + on-device logs; no Compose UI tests yet.

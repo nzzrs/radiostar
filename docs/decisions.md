@@ -359,10 +359,10 @@ Six generated playlists:
 
 | Playlist | Window | Size | Refresh |
 | --- | --- | --- | --- |
-| Daily Discover / Jam / Explore | last 7 days | 30 | once per calendar day |
+| Daily Discover / Jam / Explore | last 7 days | 30 | once per 06:00 playlist day |
 | Weekly Discover / Jam / Explore | last 30 days | 30 | once per ISO week |
 
-DJ Cherry is **not** a playlist. It is a DJ session (D-15).
+The AI DJ is **not** a playlist. It is a DJ session (D-15); DJ Cherry is a persona.
 
 - Ids are fixed (`LP_RS_DAILY_DISCOVER`, `LP_RS_WEEKLY_JAMS`, ...), so a
   refresh replaces the same rows.
@@ -412,11 +412,12 @@ existing ones stay. A fresh install without listens shows the empty shelf. The
 visual shelf and opening a generated playlist still need the user's device
 test; the database rows, artist maps and generation path are verified.
 
-## D-15 — DJ Cherry is a session, not a playlist
+## D-15 — AI DJ is a session, not a playlist
 
 **Status:** implemented MVP in `feature/dj-cherry`; candidate pool reused from generated playlists.
 
-- DJ Cherry left the generated-playlist set and the playlist shelf.
+- DJ Cherry is a persona; the AI DJ session left the generated-playlist set
+  and the playlist shelf.
 - Home gets a smaller DJ block, separate from the playlists: a fruit emoji,
   the selected persona name, and the line *Let the DJ play the beat*.
 - Tapping it opens the DJ panel, not a playlist. The panel has a radial wheel
