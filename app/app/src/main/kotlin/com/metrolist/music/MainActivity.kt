@@ -191,6 +191,7 @@ import com.metrolist.music.ui.component.shimmer.ShimmerTheme
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.player.BottomSheetPlayer
 import com.metrolist.music.ui.screens.Screens
+import com.metrolist.music.ui.screens.DjSpeakingOverlay
 import com.metrolist.music.ui.screens.navigationBuilder
 import com.metrolist.music.ui.screens.settings.ChangelogScreen
 import com.metrolist.music.ui.screens.settings.DarkMode
@@ -1411,6 +1412,8 @@ class MainActivity : FragmentActivity() {
                         state = LocalBottomSheetPageState.current,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
+
+                    DjSpeakingOverlay()
 
                     if (showAccountDialog) {
                         AccountSettingsDialog(

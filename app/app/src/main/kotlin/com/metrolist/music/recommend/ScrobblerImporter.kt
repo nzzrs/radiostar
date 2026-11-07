@@ -140,22 +140,26 @@ object ScrobblerImporter {
                                 config.baseUrl.trim().trimEnd('/')
                             }
                         if (root.isBlank()) return@withContext ListenImportResult(0, 0, null, false, "Server URL missing")
-                        var cursor = since
+                        val incremental = since > 0L
+                        var cursor = 0L
                         for (page in 1..MAX_PAGES) {
-                            if (since == 0L && total != null && fetched >= total) break
+                            if (!incremental && total != null && fetched >= total) break
                             val url =
                                 "$root/1/user/${encode(user)}/listens?count=100" +
                                     if (cursor > 0) "&max_ts=$cursor" else ""
                             val body = getJson(url, config.token.trim())
                             val listens = body.optJSONObject("payload")?.optJSONArray("listens") ?: break
                             if (listens.length() == 0) break
-                            val records = listens.toListenRecords(config.service.id)
+                            val pageRecords = listens.toListenRecords(config.service.id)
                             fetched += listens.length()
-                            val pageMax = records.maxOfOrNull { it.listenedAt } ?: 0L
+                            val newRecords = if (incremental) pageRecords.filter { it.listenedAt > since } else pageRecords
+                            val pageMax = newRecords.maxOfOrNull { it.listenedAt } ?: 0L
                             if (pageMax > maxSeen) maxSeen = pageMax
-                            added += store.append(records)
+                            added += store.append(newRecords)
                             onProgress(fetched, total)
-                            cursor = (records.minOfOrNull { it.listenedAt } ?: 1L) - 1L
+                            val pageMin = pageRecords.minOfOrNull { it.listenedAt } ?: 1L
+                            if (incremental && pageMin <= since) break
+                            cursor = pageMin - 1L
                             if (cursor <= 0) break
                             delay(PAGE_DELAY_MS)
                         }

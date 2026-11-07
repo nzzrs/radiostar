@@ -275,9 +275,10 @@ that service needs. Before downloading, it asks the service for the total
 listen count; the progress bar and the `fetched / total` label use that number.
 A run that ends short is marked incomplete, keeps its checkpoint and retries;
 if the local per-service count is below the service total, the importer
-rebuilds from zero (repairing old capped runs). The sync frequency is
-startup, 15 min, 1 h, 6 h, daily, weekly or off. A completed import requests an
-immediate playlist refresh.
+rebuilds from zero (repairing old capped runs). Incremental runs read from the
+newest page and stop at the saved timestamp. The last result is persisted. The
+sync frequency is startup, 15 min, 1 h, 6 h, daily, weekly or off. A completed
+import requests an immediate playlist refresh.
 
 Resilience rules:
 
@@ -321,7 +322,7 @@ Entry point: a compact Home block separate from playlists:
     Let the DJ play the beat
 ```
 
-Tapping opens the DJ panel, not a playlist.
+Tapping the card starts the session; the gear opens the DJ settings panel.
 
 Panel controls:
 
@@ -333,14 +334,19 @@ Panel controls:
   stop for accessibility.
 - Personas: 🍒 Cherry (default), 🍋 Lemon, 🫐 Berry, 🍌 Banana, 🍓 Strawberry,
   🥥 Coco. Each has a short personality, TTS pitch/rate and wording.
-- Start is explicit. The DJ builds an on-demand queue from the generated
-  playlists: Jam is familiar, Discover is likely, Explore is far. The weights
-  pick buckets; duplicates and the 20-track cap are enforced. It then plays and
-  speaks; ducking and screen-off behaviour reuse `DjAnnouncer`.
+- The card starts the session; the gear opens settings. Save persists the
+  wheel/persona and restarts the session. The AI provider (OpenRouter, OpenAI,
+  Gemini or custom) is chosen in Settings → AI, not in the DJ panel.
+- The DJ builds an on-demand queue from the generated playlists: Jam is
+  familiar, Discover is likely, Explore is far. The weights pick buckets;
+  duplicates and the 20-track cap are enforced. It plays and speaks; ducking
+  and screen-off behaviour reuse `DjAnnouncer`.
+- A full-screen abstract sphere view is shown while the voice is speaking, then
+  the song view returns.
 - Optional AI commentary sends the persona plus previous/next track to the
-  OpenAI-compatible provider selected in the panel (OpenRouter, OpenAI or a
-  custom endpoint configured in Settings → AI). If the call fails, the template
-  announcement is spoken.
+  configured OpenAI-compatible provider. If the call fails, the template
+  announcement is spoken. The API key can be stored AES/GCM-encrypted in the
+  Android Keystore.
 - Persona affects voice and copy only, never the candidate math.
 - Leaving the session returns to normal playback; background generation and
   playlists never touch the queue.

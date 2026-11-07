@@ -111,9 +111,6 @@ import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
-import com.metrolist.music.constants.AiProviderKey
-import com.metrolist.music.constants.OpenRouterBaseUrlKey
-import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.constants.RadioStarDjAiKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
@@ -693,11 +690,19 @@ fun HomeScreen(
     var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
     var showDjPanel by remember { mutableStateOf(false) }
     var djAi by rememberPreference(RadioStarDjAiKey, false)
-    var aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
-    var aiBase by rememberPreference(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
-    var aiModel by rememberPreference(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
     val djScope = rememberCoroutineScope()
+    val startDj: (DjConfig) -> Unit = { config ->
+        djScope.launch {
+            val songs = viewModel.buildDjQueue(config)
+            if (songs.isNotEmpty()) {
+                playerConnection.service?.playDjSession(
+                    songs.map { it.toMediaItem() },
+                    config.persona,
+                )
+            }
+        }
+    }
 
     // Official podcast API data
     val savedPodcastShows by viewModel.savedPodcastShows.collectAsStateWithLifecycle()
@@ -1230,26 +1235,16 @@ fun HomeScreen(
                 }
 
                 item(key = "radiostar_dj") {
-                    DjHomeCard(djConfig) { showDjPanel = true }
+                    DjHomeCard(
+                        config = djConfig,
+                        onStart = { startDj(djConfig) },
+                        onSettings = { showDjPanel = true },
+                    )
                     if (showDjPanel) {
                         DjPanelDialog(
                             config = djConfig,
                             aiEnabled = djAi,
-                            aiProvider = aiProvider,
                             onAiChange = { djAi = it },
-                            onAiProviderChange = { provider ->
-                                aiProvider = provider
-                                when (provider) {
-                                    "OpenRouter" -> {
-                                        aiBase = "https://openrouter.ai/api/v1/chat/completions"
-                                        aiModel = "google/gemini-2.5-flash-lite"
-                                    }
-                                    "OpenAI" -> {
-                                        aiBase = "https://api.openai.com/v1/chat/completions"
-                                        aiModel = "gpt-4o-mini"
-                                    }
-                                }
-                            },
                             onConfigChange = { config ->
                                 djPersona = config.persona
                                 djKnown = config.known
@@ -1259,15 +1254,7 @@ fun HomeScreen(
                             onDismiss = { showDjPanel = false },
                             onStart = {
                                 showDjPanel = false
-                                djScope.launch {
-                                    val songs = viewModel.buildDjQueue(djConfig)
-                                    if (songs.isNotEmpty()) {
-                                        playerConnection.service?.playDjSession(
-                                            songs.map { it.toMediaItem() },
-                                            djConfig.persona,
-                                        )
-                                    }
-                                }
+                                startDj(djConfig)
                             },
                         )
                     }
