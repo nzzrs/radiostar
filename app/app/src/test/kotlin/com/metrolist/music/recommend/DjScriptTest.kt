@@ -99,4 +99,20 @@ class DjScriptTest {
             DjScript.announcement("Una \n  canción", "Un\tartista", "es"),
         )
     }
+
+    @Test
+    fun `session observations are true and persona aware`() {
+        val line = DjScript.observation(DjPersona.CHERRY, 4, 12, 3, "es-MX")
+        assertTrue(line.contains("4"))
+        assertTrue(line.contains("12"))
+        assertTrue(line.contains("Cherry"))
+        assertTrue(line.length <= 180)
+    }
+
+    @Test
+    fun `session observations change with the session`() {
+        val first = DjScript.observation(DjPersona.LEMON, 1, 1, 1, "en")
+        val second = DjScript.observation(DjPersona.LEMON, 6, 18, 4, "en")
+        assertTrue(first != second)
+    }
 }

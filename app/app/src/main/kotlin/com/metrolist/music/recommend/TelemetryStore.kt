@@ -73,6 +73,44 @@ object TelemetryStore {
         }.getOrDefault(0)
     }
 
+    /**
+     * Reads the local event log. Malformed or truncated lines are skipped so a
+     * crash during an append never makes the whole history unusable.
+     */
+    fun load(context: Context): List<Event> {
+        val file = File(context.filesDir, FILE_NAME)
+        if (!file.exists()) return emptyList()
+        val result = ArrayList<Event>()
+        runCatching {
+            file.forEachLine { line ->
+                if (line.isBlank()) return@forEachLine
+                runCatching {
+                    val json = JSONObject(line)
+                    val type =
+                        TelemetryEventType.values().firstOrNull { it.wireName == json.optString("event") }
+                            ?: return@runCatching
+                    result.add(
+                        Event(
+                            type = type,
+                            songId = json.optString("songId").takeIf { it.isNotBlank() },
+                            title = json.optString("title").takeIf { it.isNotBlank() },
+                            artist = json.optString("artist").takeIf { it.isNotBlank() },
+                            playlist = json.optString("playlist").takeIf { it.isNotBlank() },
+                            seed = json.optString("seed").takeIf { it.isNotBlank() },
+                            positionMs = json.optLong("positionMs").takeIf { json.has("positionMs") },
+                            durationMs = json.optLong("durationMs").takeIf { json.has("durationMs") },
+                            fromMs = json.optLong("fromMs").takeIf { json.has("fromMs") },
+                            toMs = json.optLong("toMs").takeIf { json.has("toMs") },
+                            completed = json.optBoolean("completed", false),
+                            at = json.optLong("at", 0L),
+                        ),
+                    )
+                }
+            }
+        }
+        return result
+    }
+
     fun clear(context: Context): Boolean =
         runCatching {
             val file = File(context.filesDir, FILE_NAME)

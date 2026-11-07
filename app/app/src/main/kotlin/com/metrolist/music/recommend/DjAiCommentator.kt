@@ -38,6 +38,7 @@ object DjAiCommentator {
         previous: String?,
         nextTitle: String,
         nextArtist: String,
+        fact: String? = null,
     ): String? {
         val prompt =
             buildString {
@@ -46,9 +47,13 @@ object DjAiCommentator {
                 append(". Write one short spoken link, at most 25 words, ")
                 append("in the language of the listener, no markdown or quotes. ")
                 if (!previous.isNullOrBlank()) append("Previous track: $previous. ")
-                append("Next: $nextTitle by $nextArtist.")
+                append("Next: $nextTitle by $nextArtist. ")
+                if (!fact.isNullOrBlank()) {
+                    append("You may use this true session detail, without inventing anything: $fact ")
+                    append("Keep the link natural, not like a list of statistics.")
+                }
             }
-        return request(context, prompt, "Say the link.")
+        return request(context, prompt, if (fact.isNullOrBlank()) "Say the link." else "Say the link with the session detail.")
     }
 
     suspend fun intro(

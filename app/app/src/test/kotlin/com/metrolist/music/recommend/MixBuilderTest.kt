@@ -149,6 +149,34 @@ class MixBuilderTest {
     }
 
     @Test
+    fun `telemetry bias can promote a track the listener finishes`() {
+        val pool =
+            listOf(
+                candidate("near", "A", 1.0, 0.0, 0.0),
+                candidate("liked", "B", 0.9, 0.1, 0.0),
+            )
+        val bias = TelemetryBias(songScores = mapOf("liked" to 1.0))
+
+        val slate = MixBuilder.build(session, pool, MixKind.JAMS, k = 1, bias = bias)
+
+        assertEquals("liked", slate.first().candidate.id)
+    }
+
+    @Test
+    fun `telemetry bias can demote a track the listener skips`() {
+        val pool =
+            listOf(
+                candidate("skipped", "A", 1.0, 0.0, 0.0),
+                candidate("other", "B", 0.9, 0.1, 0.0),
+            )
+        val bias = TelemetryBias(songScores = mapOf("skipped" to -1.0))
+
+        val slate = MixBuilder.build(session, pool, MixKind.JAMS, k = 1, bias = bias)
+
+        assertEquals("other", slate.first().candidate.id)
+    }
+
+    @Test
     fun `selection is deterministic`() {
         val pool = (0 until 12).map { index -> candidate("c$index", "artist-${index % 4}", 1.0, index * 0.1, 0.0) }
 

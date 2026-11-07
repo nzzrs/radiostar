@@ -42,6 +42,9 @@ data class SlateEntry(
  * descending.
  */
 object MixBuilder {
+    /** A full positive or negative telemetry signal changes quality by 35%. */
+    private const val TASTE_WEIGHT: Double = 0.35
+
     data class Params(
         val slateSize: Int,
         val maxPerArtist: Int,
@@ -66,6 +69,7 @@ object MixBuilder {
         historyIds: Set<String> = emptySet(),
         historyKeys: Set<String> = emptySet(),
         seedArtist: String? = null,
+        bias: TelemetryBias = TelemetryBias.EMPTY,
     ): List<SlateEntry> {
         require(session.isNotEmpty()) { "session vector must not be empty" }
         if (candidates.isEmpty() || k <= 0) return emptyList()
@@ -85,7 +89,9 @@ object MixBuilder {
         val quality =
             DoubleArray(pool.size) { index ->
                 val similarity = cosine(session, pool[index].vector)
-                (1.0 - params.novelty) * similarity + params.novelty * (1.0 - similarity)
+                val base = (1.0 - params.novelty) * similarity + params.novelty * (1.0 - similarity)
+                val taste = bias.score(pool[index].id, pool[index].artists)
+                (base * (1.0 + TASTE_WEIGHT * taste)).coerceAtLeast(1e-6)
             }
 
         val vectors = Array(pool.size) { pool[it].vector }

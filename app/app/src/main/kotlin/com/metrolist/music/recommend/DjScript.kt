@@ -85,6 +85,38 @@ object DjScript {
         return text.take(MAX_CHARS)
     }
 
+    /**
+     * A true, session-specific observation. It never invents facts about the
+     * artist, so it is safe to speak when the AI is unavailable.
+     */
+    fun observation(
+        persona: DjPersona,
+        trackNumber: Int,
+        elapsedMinutes: Long,
+        distinctArtists: Int,
+        language: String,
+    ): String {
+        val tracks = trackNumber.coerceAtLeast(1)
+        val minutes = elapsedMinutes.coerceAtLeast(1L)
+        val artists = distinctArtists.coerceAtLeast(1)
+        val name = persona.displayName.removePrefix("DJ ")
+        val variants =
+            if (language.lowercase().startsWith("es")) {
+                listOf(
+                    "Dato de sesión: ya van $tracks canciones y $artists artistas distintos. $name sigue al mando.",
+                    "Curiosidad de la sesión: llevamos $minutes minutos y $tracks canciones. $name no se piensa mover.",
+                    "Dato: $tracks canciones después, y todavía quedan historias por sonar. $name lo sabe.",
+                )
+            } else {
+                listOf(
+                    "Session fact: that is $tracks tracks and $artists different artists so far. $name is still in charge.",
+                    "Session curiosity: we are $minutes minutes and $tracks tracks in. $name is not going anywhere.",
+                    "Session fact: $tracks tracks in, and there are still stories left to play. $name knows it.",
+                )
+            }
+        return variants[(tracks + artists) % variants.size].take(MAX_CHARS)
+    }
+
     private fun clean(value: String): String =
         value.replace(Regex("\\s+"), " ").trim()
 }

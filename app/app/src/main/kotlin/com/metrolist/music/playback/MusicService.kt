@@ -32,6 +32,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.datastore.preferences.core.Preferences
@@ -221,9 +222,12 @@ import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
 import com.metrolist.music.recommend.DjAiCommentator
 import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjSpeechPolicy
 import com.metrolist.music.recommend.ScrobbleDestination
+import com.metrolist.music.recommend.TelemetryBias
 import com.metrolist.music.recommend.TelemetryEventType
 import com.metrolist.music.recommend.TelemetryStore
+import com.metrolist.music.recommend.TelemetryTaste
 import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.recommend.DjScript
 import com.metrolist.music.recommend.TempoKeyEstimator
@@ -471,6 +475,14 @@ class MusicService :
     private var djTickerStarted = false
     private var djBaseVolume = 1f
     @Volatile private var djPersona: DjPersona? = null
+    @Volatile private var djBias: TelemetryBias = TelemetryBias.EMPTY
+    private var djLastSpeechIndex: Int = -1
+    private var djLastSpeechAtMs: Long = 0L
+    private var djSessionStartedAtMs: Long = 0L
+    private var djLinksSpoken: Int = 0
+    private var djPausedBySpeech: Boolean = false
+    private var djShouldResume: Boolean = false
+    private var djResumeJob: Runnable? = null
 
     private var loudnessSetupJob: Job? = null
     private var loudnessSetupGeneration: Long = 0L
@@ -4220,6 +4232,14 @@ class MusicService :
             radioStarDj = true
             djPersona = persona
             announcedPair = null
+            djBias = TelemetryBias.EMPTY
+            djLastSpeechIndex = -1
+            djLastSpeechAtMs = SystemClock.elapsedRealtime()
+            djSessionStartedAtMs = djLastSpeechAtMs
+            djLinksSpoken = 0
+            djPausedBySpeech = false
+            djShouldResume = false
+            cancelDjResume()
             DjSessionState.speaking(persona)
             DjSessionState.requestPlayerOpen()
             val announcer =
@@ -4248,7 +4268,12 @@ class MusicService :
                     announcer.announce(
                         line,
                         "dj:intro:${System.nanoTime()}",
-                        onDone = { scope.launch(Dispatchers.Main) { startPlayback() } },
+                        onDone = {
+                            djLinksSpoken = 1
+                            djLastSpeechIndex = -1
+                            djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                            scope.launch(Dispatchers.Main) { startPlayback() }
+                        },
                     )
                 if (!spoken) startPlayback()
             }
@@ -4265,6 +4290,10 @@ class MusicService :
             } else {
                 speak(fallback)
             }
+            scope.launch(Dispatchers.IO) {
+                val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
+                if (radioStarDj && sessionId == djSessionId) djBias = loaded
+            }
             Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
         }
     }
@@ -4276,8 +4305,11 @@ class MusicService :
         djSessionId++
         announcedPair = null
         djPersona = null
+        cancelDjResume()
         djAnnouncer?.shutdown()
         djAnnouncer = null
+        djPausedBySpeech = false
+        djShouldResume = false
         DjSessionState.idle()
         Timber.tag("RadioStarDj").i("end session")
     }
@@ -4307,7 +4339,7 @@ class MusicService :
             }
         }
 
-    /** Announce the next track inside its last seconds, before it starts. */
+    /** Speaks a link only when the session cadence calls for one. */
     private fun maybeAnnounceDj() {
         if (!radioStarDj || !::player.isInitialized) return
         if (!player.playWhenReady || player.playbackState != Player.STATE_READY) return
@@ -4322,6 +4354,32 @@ class MusicService :
 
         val nextTitle = next.mediaMetadata.title?.toString().orEmpty()
         val nextArtist = next.mediaMetadata.artist?.toString().orEmpty()
+        val currentArtist = current.mediaMetadata.artist?.toString().orEmpty()
+        val tracksSince = (index - djLastSpeechIndex).coerceAtLeast(1)
+        val roll =
+            (Math.floorMod(djSessionId * 37 + index * 17, 100)).toDouble() / 100.0
+        val nextBias =
+            djBias.score(
+                songId = next.mediaId,
+                artists =
+                    next.metadata?.artists?.map { it.name }
+                        ?: listOfNotNull(nextArtist.takeIf { it.isNotBlank() }),
+            )
+        val decision =
+            DjSpeechPolicy.decide(
+                tracksSinceLastSpeech = tracksSince,
+                elapsedSinceLastSpeechMs = SystemClock.elapsedRealtime() - djLastSpeechAtMs,
+                nextTrackBias = nextBias,
+                nextArtistChanged = !nextArtist.equals(currentArtist, ignoreCase = true),
+                linksSpoken = djLinksSpoken,
+                roll = roll,
+            )
+        announcedPair = pair
+        if (!decision.speak) {
+            Timber.tag("RadioStarDj").i("quiet pair=%s tracks=%d", pair, tracksSince)
+            return
+        }
+
         val text =
             DjScript.announcement(
                 title = nextTitle,
@@ -4330,13 +4388,62 @@ class MusicService :
             )
         if (text.isEmpty()) return
 
+        val fact =
+            if (decision.useFact) {
+                val artists =
+                    (0..minOf(index + 1, player.mediaItemCount - 1))
+                        .mapNotNull { position ->
+                            player.getMediaItemAt(position).mediaMetadata.artist?.toString()
+                                ?.takeIf { it.isNotBlank() }
+                        }.toSet().size
+                DjScript.observation(
+                    persona = djPersona ?: DjPersona.CHERRY,
+                    trackNumber = index + 1,
+                    elapsedMinutes = (SystemClock.elapsedRealtime() - djSessionStartedAtMs) / 60_000L,
+                    distinctArtists = artists,
+                    language = java.util.Locale.getDefault().language,
+                )
+            } else {
+                null
+            }
+        val fallback = if (fact.isNullOrBlank()) text else "$text $fact".take(260)
+
         val announcer =
             djAnnouncer
                 ?: DjAnnouncer(this@MusicService) { ducked ->
                     djHandler.post { applyDjDuck(ducked) }
                 }.also { djAnnouncer = it }
         announcer.prepare()
-        announcedPair = pair
+        // Stop the current track before the model is asked for a line. The
+        // player stays paused until the utterance finishes.
+        pauseForDjSpeech()
+
+        val speakLine: (String) -> Unit = { line ->
+            val spoken =
+                announcer.announce(
+                    line,
+                    "dj:$pair",
+                    onDone = {
+                        djHandler.post {
+                            if (radioStarDj) {
+                                djLastSpeechIndex = index
+                                djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                                djLinksSpoken += 1
+                                Timber.tag("RadioStarDj").i(
+                                    "announce reason=%s fact=%s pair=%s text=%s",
+                                    decision.reason,
+                                    decision.useFact,
+                                    pair,
+                                    line,
+                                )
+                            }
+                            resumeAfterDjSpeech()
+                        }
+                    },
+                )
+            if (!spoken) resumeAfterDjSpeech()
+        }
+
         if (djAiEnabled) {
             val previous =
                 listOfNotNull(
@@ -4345,34 +4452,66 @@ class MusicService :
                 ).joinToString(" - ")
             scope.launch {
                 val ai =
-                    DjAiCommentator.comment(
-                        context = this@MusicService,
-                        persona = djPersona ?: DjPersona.CHERRY,
-                        previous = previous,
-                        nextTitle = nextTitle,
-                        nextArtist = nextArtist,
-                    )
-                djHandler.post {
-                    val line = ai ?: text
-                    if (announcer.announce(line, "dj:$pair")) {
-                        Timber.tag("RadioStarDj").i("announce ai=%s pair=%s text=%s", ai != null, pair, line)
+                    kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                        DjAiCommentator.comment(
+                            context = this@MusicService,
+                            persona = djPersona ?: DjPersona.CHERRY,
+                            previous = previous,
+                            nextTitle = nextTitle,
+                            nextArtist = nextArtist,
+                            fact = fact,
+                        )
                     }
+                djHandler.post {
+                    if (radioStarDj) speakLine(ai ?: fallback)
                 }
             }
-        } else if (announcer.announce(text, "dj:$pair")) {
-            Timber.tag("RadioStarDj").i("announce pair=%s text=%s", pair, text)
+        } else {
+            speakLine(fallback)
         }
+    }
+
+    private fun pauseForDjSpeech() {
+        if (!::player.isInitialized || djPausedBySpeech) return
+        djPausedBySpeech = true
+        djShouldResume = player.isPlaying || player.playWhenReady
+        if (djShouldResume) player.pause()
+    }
+
+    private fun resumeAfterDjSpeech() {
+        if (!djPausedBySpeech) return
+        djPausedBySpeech = false
+        val shouldResume = djShouldResume
+        djShouldResume = false
+        if (!shouldResume || !radioStarDj || !::player.isInitialized) return
+        if (player.playbackState == Player.STATE_IDLE) return
+        cancelDjResume()
+        val resume =
+            Runnable {
+                if (radioStarDj && ::player.isInitialized && player.playbackState != Player.STATE_IDLE) {
+                    player.play()
+                }
+            }
+        djResumeJob = resume
+        djHandler.postDelayed(resume, 350L)
+    }
+
+    private fun cancelDjResume() {
+        djResumeJob?.let { djHandler.removeCallbacks(it) }
+        djResumeJob = null
     }
 
     private fun applyDjDuck(ducked: Boolean) {
         if (!::player.isInitialized || isCrossfading) return
         if (ducked) {
+            pauseForDjSpeech()
             djBaseVolume = player.volume
             player.volume = (djBaseVolume * 0.22f).coerceIn(0f, 1f)
             DjSessionState.speaking(djPersona ?: com.metrolist.music.recommend.DjPersona.CHERRY)
             Timber.tag("RadioStarDj").i("duck on volume=%.2f", player.volume)
         } else {
             player.volume = calculateEffectiveVolume()
+            resumeAfterDjSpeech()
             DjSessionState.playing(djPersona ?: com.metrolist.music.recommend.DjPersona.CHERRY)
             Timber.tag("RadioStarDj").i("duck off volume=%.2f", player.volume)
         }

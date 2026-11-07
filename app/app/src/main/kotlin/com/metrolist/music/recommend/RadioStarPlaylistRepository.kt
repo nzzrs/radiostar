@@ -75,6 +75,11 @@ class RadioStarPlaylistRepository
                 cleanupLegacy()
                 loadCards()
             }
+            scope.launch {
+                RadioStarRefreshBus.requests.collect {
+                    refreshIfDue(force = true)
+                }
+            }
         }
 
         /** DJ Cherry used to be a playlist; remove the old generated row once. */
@@ -130,13 +135,47 @@ class RadioStarPlaylistRepository
             }
         }
 
+        /**
+         * Rebuilds one generated playlist after a pull-to-refresh. It does not
+         * advance the daily/weekly stamp: the other lists in the same group are
+         * still valid, and the user asked only for this one.
+         */
+        suspend fun refreshPlaylist(id: String): Boolean =
+            mutex.withLock {
+                val spec = RadioStarPlaylistSpecs.byId(id) ?: return@withLock false
+                val prefs = context.dataStore.data.first()
+                val server = serverUrl(prefs)
+                if (server.isNullOrBlank()) {
+                    Timber.tag(TAG).i("no embedding server; cannot refresh %s", id)
+                    return@withLock false
+                }
+                val specs = if (spec.horizon == PlaylistHorizon.DAILY) RadioStarPlaylistSpecs.daily else RadioStarPlaylistSpecs.weekly
+                val days = if (spec.horizon == PlaylistHorizon.DAILY) 7L else 30L
+                val anchors = if (spec.horizon == PlaylistHorizon.DAILY) 5 else 8
+                val refreshed =
+                    runCatching {
+                        generateGroup(
+                            specs = specs,
+                            days = days,
+                            anchors = anchors,
+                            perAnchor = 18,
+                            server = server,
+                            only = id,
+                        )
+                    }.onFailure { Timber.tag(TAG).e(it, "refresh failed for %s", id) }
+                        .getOrDefault(false)
+                loadCards()
+                refreshed
+            }
+
         private suspend fun generateGroup(
             specs: List<PlaylistSpec>,
             days: Long,
             anchors: Int,
             perAnchor: Int,
             server: String,
-        ) {
+            only: String? = null,
+        ): Boolean {
             val cutoff = System.currentTimeMillis() / 1000L - days * 86_400L
             val allImported = ListenStore(context).load()
             val recentImported =
@@ -178,9 +217,10 @@ class RadioStarPlaylistRepository
                     .take(anchors + 2)
             if (anchorIds.isEmpty()) {
                 Timber.tag(TAG).i("no anchors for %d-day playlists", days)
-                return
+                return false
             }
             val radio = radioItems(anchorIds, perAnchor)
+            val bias = TelemetryTaste.load(context)
             val importedPool =
                 importedAnchorIds.mapNotNull { id ->
                     database.song(id).first()?.toPoolSong()
@@ -193,7 +233,7 @@ class RadioStarPlaylistRepository
                     .take(160)
             if (allPool.isEmpty()) {
                 Timber.tag(TAG).i("empty candidate pool")
-                return
+                return false
             }
 
             val importedItems = imported.map { EmbeddingClient.Item(it.artist, it.title) }
@@ -203,7 +243,7 @@ class RadioStarPlaylistRepository
                     allPool.map { EmbeddingClient.Item(it.artistText, it.title) } + importedItems,
                 ) ?: run {
                     Timber.tag(TAG).w("embedding failed for %d pool items", allPool.size)
-                    return
+                    return false
                 }
             val byId = allPool.zip(vectors.take(allPool.size)).associate { (song, vector) -> song.id to vector }
             val externalVectors = vectors.drop(allPool.size)
@@ -211,7 +251,7 @@ class RadioStarPlaylistRepository
                 importedPool.mapNotNull { byId[it.id] } +
                     externalVectors +
                     historyPool.mapNotNull { byId[it.id] }
-            val centroid = centroid(historyVectors) ?: return
+            val centroid = centroid(historyVectors) ?: return false
 
             val profiles = loadProfiles()
             val referenceId = anchorIds.firstOrNull()
@@ -227,7 +267,9 @@ class RadioStarPlaylistRepository
             allImported.forEach { heardKeys.add(ListenHistory.key(it.title, it.artist)) }
             val radioIds = radio.mapNotNull { it.id }.toSet()
 
+            var wrote = false
             for (spec in specs) {
+                if (only != null && spec.id != only) continue
                 val pool =
                     if (spec.kind == MixKind.DISCOVER || spec.kind == MixKind.EXPLORE) {
                         allPool.filter { it.id in radioIds }
@@ -255,10 +297,12 @@ class RadioStarPlaylistRepository
                         k = spec.size,
                         historyIds = heardIds,
                         historyKeys = heardKeys,
+                        bias = bias,
                     )
                 if (slate.isEmpty()) continue
                 val ordered = orderSlate(slate, profiles, referenceId)
                 writePlaylist(spec, ordered)
+                wrote = true
                 Timber.tag(TAG).i(
                     "wrote %s kind=%s tracks=%d",
                     spec.title,
@@ -266,6 +310,7 @@ class RadioStarPlaylistRepository
                     slate.size,
                 )
             }
+            return wrote
         }
 
         /**
@@ -276,13 +321,26 @@ class RadioStarPlaylistRepository
             val jam = playlistSongs("LP_RS_DAILY_JAMS") + playlistSongs("LP_RS_WEEKLY_JAMS")
             val likely = playlistSongs("LP_RS_DAILY_DISCOVER") + playlistSongs("LP_RS_WEEKLY_DISCOVER")
             val far = playlistSongs("LP_RS_DAILY_EXPLORE") + playlistSongs("LP_RS_WEEKLY_EXPLORE")
+            val bias = TelemetryTaste.load(context)
             val result = ArrayList<Song>()
             val seen = HashSet<String>()
+
+            fun rank(bucket: List<Song>): List<Song> {
+                val distinct = bucket.distinctBy { it.song.id }
+                val usable =
+                    distinct.filter {
+                        bias.score(it.song.id, it.artists.map { artist -> artist.name }) > -0.45
+                    }.ifEmpty { distinct }
+                return usable.shuffled().sortedByDescending {
+                    bias.score(it.song.id, it.artists.map { artist -> artist.name })
+                }
+            }
+
             fun add(bucket: List<Song>, presence: DjPresence) {
                 if (presence == DjPresence.NEVER) return
                 val count = if (presence == DjPresence.FREQUENT) 8 else 3
                 val target = result.size + count
-                for (song in bucket.shuffled()) {
+                for (song in rank(bucket)) {
                     if (result.size >= target || result.size >= 20) break
                     if (seen.add(song.song.id)) result.add(song)
                 }
@@ -290,7 +348,7 @@ class RadioStarPlaylistRepository
             add(jam, config.known)
             add(likely, config.likely)
             add(far, config.far)
-            (likely + jam + far).shuffled().forEach { song ->
+            rank(likely + jam + far).forEach { song ->
                 if (result.size < 20 && seen.add(song.song.id)) result.add(song)
             }
             return result

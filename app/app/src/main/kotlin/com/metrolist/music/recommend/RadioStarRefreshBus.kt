@@ -7,7 +7,7 @@ package com.metrolist.music.recommend
 
 import kotlinx.coroutines.flow.MutableSharedFlow
 
-/** Tells Home that imported listens changed and playlists should rebuild now. */
+/** Tells the recommendation repository that imported listens changed. */
 object RadioStarRefreshBus {
     val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
