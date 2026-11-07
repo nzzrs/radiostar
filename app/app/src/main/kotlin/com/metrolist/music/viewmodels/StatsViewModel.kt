@@ -20,6 +20,7 @@ import com.metrolist.music.constants.StatPeriod
 import com.metrolist.music.constants.statToPeriod
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.PlaylistEntity
+import com.metrolist.music.recommend.ImportedMostSongs
 import com.metrolist.music.ui.screens.OptionStats
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
@@ -386,11 +387,29 @@ constructor(
             database.update(playlistEntity)
         }
 
+        // Imported histories have no songId. Resolve their top tracks and put
+        // them ahead of local events, so the playlists reflect the full
+        // listening history instead of only what was played inside the app.
+        val importedIds =
+            runCatching {
+                ImportedMostSongs.resolve(
+                    context = context,
+                    database = database,
+                    sinceEpochSeconds = fromTimeStamp.atZone(ZoneId.systemDefault()).toEpochSecond(),
+                    limit = 20,
+                )
+            }.onFailure { reportException(it) }
+                .getOrDefault(emptyList())
+        val mergedIds =
+            (importedIds + songs.map { it.song.id })
+                .distinct()
+                .take(50)
+
         database.clearPlaylist(playlistId)
 
         val fullPlaylist = database.playlist(playlistId).first()
         if (fullPlaylist != null) {
-            database.addSongsToPlaylist(fullPlaylist, songs.map { it.id to null })
+            database.addSongsToPlaylist(fullPlaylist, mergedIds.map { it to null })
         }
     }
 

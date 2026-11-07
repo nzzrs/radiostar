@@ -267,8 +267,8 @@ Adapters:
 | Service | Read | Write / backup |
 | --- | --- | --- |
 | Last.fm | `user.getRecentTracks` (extended, paged) — implemented | `track.scrobble`, `track.updateNowPlaying` — existing |
-| ListenBrainz | `/1/user/{user}/listens` (`max_ts`, count) — implemented | `/1/submit-listens` — **[planned]** |
-| Self-hosted | same ListenBrainz-compatible endpoints on a base URL — implemented | same — **[planned]** |
+| ListenBrainz | `/1/user/{user}/listens` (`max_ts`, count) — implemented | `/1/submit-listens` — implemented |
+| Self-hosted | same ListenBrainz-compatible endpoints on a base URL — implemented | same — implemented |
 
 The RadioStar settings screen selects the service and shows only the fields
 that service needs. Before downloading, it asks the service for the total
@@ -296,8 +296,12 @@ Merging with recommendations:
 - `imported_listen` rows contribute title/artist text to the taste centroid and
   to the heard-key exclusion set.
 - Local `event` rows remain the source of playable history for Jam anchors.
-- If there are no local playable anchors, resolve the top imported tracks to
-  YouTube ids via search (bounded, cached) **[planned]**.
+- Imported top tracks are resolved to YouTube ids via search (bounded, cached)
+  and used as extra radio anchors, so a fresh install with only imported
+  history still generates personal playlists.
+- The upstream **Weekly Most** and **Monthly Most** playlists merge the top
+  imported tracks for their window ahead of local `event` rows. Importing new
+  listens clears their sync stamps, so opening Stats rebuilds them.
 - Local and imported duplicates collapse by normalised title/artist and
   timestamp proximity.
 
@@ -307,11 +311,19 @@ Generic cold start:
   visible "generic" label. Never present generic lists as personal.
 - Once imported listens exist, the same pipeline becomes personal.
 
-Outbound backup:
+Outbound scrobbling:
 
-- Existing `ScrobbleManager` sends Last.fm scrobbles with a delay threshold.
-- ListenBrainz/self-hosted submission and an offline retry queue are
-  **[planned]**. The app both sends its listens and downloads history.
+- A separate **Scrobble service** setting chooses the destination: Off
+  (default), Last.fm, ListenBrainz, Custom (ListenBrainz-compatible) or
+  External scrobbler. Off and External never submit anything; External is for
+  users who already run Pano Scrobbler or another Android scrobbler.
+- `ScrobbleManager` keeps its delay threshold and calls `ScrobbleSink`, which
+  routes now-playing and completed listens to the chosen destination.
+- Last.fm uses the existing session and `track.scrobble`; ListenBrainz and
+  Custom POST `/1/submit-listens`. Custom URLs accept the server root or the
+  full endpoint.
+- A destination token falls back to the import token, so a single ListenBrainz
+  token can cover both directions. Offline retry is still a follow-up.
 
 ### 6.4 DJ Cherry
 
@@ -356,6 +368,24 @@ Panel controls:
 - Platform TTS, 8 s lookahead before the next track.
 - Duck player to 22%, partial wake lock, restore effective volume.
 - Screen-off verified: announce → duck → utterance → done → restore.
+
+### 6.6 Advanced telemetry
+
+Telemetry is local, opt-in and off by default. `TelemetryStore` appends JSONL
+events to the app's private files directory only when the user enables it.
+
+Recorded fields:
+
+- event type: play, pause, skip, seek or completion;
+- song id, title and artist;
+- position and duration;
+- wall-clock time, process session id;
+- playlist name and queue seed.
+
+Nothing is uploaded, and no audio or device identifier is written. The
+settings screen shows the stored event count, explains every field and can
+delete the local file. Skip and completion events are the inputs the
+recommender can use to distinguish rejection from satisfaction.
 
 ## 7. Deployment View
 

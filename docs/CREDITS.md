@@ -39,8 +39,11 @@ documentation are released under GPL-3.0.
 
 ## Artwork
 
-- RadioStar app icon: original SVG/vector by the RadioStar project
-  (`docs/assets/radiostar-icon.svg`), a minimal strawberry with headphones.
+- RadioStar app icon: AI-generated strawberry-with-headphones artwork,
+  provided by the RadioStar project. The source image is
+  `docs/idea/raw icon idea.jpeg`; the cropped, background-cleaned master is
+  `docs/assets/radiostar-icon.png`. The launcher mipmaps and adaptive
+  foreground/monochrome layers are derived from it.
 - Fruit emoji in the DJ persona picker are rendered by the platform emoji font.
 
 ## Trademarks

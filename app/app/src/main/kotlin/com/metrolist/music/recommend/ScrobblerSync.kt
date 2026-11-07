@@ -7,6 +7,8 @@ package com.metrolist.music.recommend
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import com.metrolist.music.constants.LastMonthlyMostPlaylistSyncKey
+import com.metrolist.music.constants.LastWeeklyMostPlaylistSyncKey
 import com.metrolist.music.constants.ScrobblerApiKeyKey
 import com.metrolist.music.constants.ScrobblerBaseUrlKey
 import com.metrolist.music.constants.ScrobblerLastFmUserKey
@@ -60,7 +62,11 @@ object ScrobblerSync {
                 )
             val result = ScrobblerImporter.import(context, config)
             if (result.complete) {
-                context.dataStore.edit { it[ScrobblerLastSyncKey] = now }
+                context.dataStore.edit {
+                    it[ScrobblerLastSyncKey] = now
+                    it[LastWeeklyMostPlaylistSyncKey] = 0L
+                    it[LastMonthlyMostPlaylistSyncKey] = 0L
+                }
                 RadioStarRefreshBus.request()
             }
         }
