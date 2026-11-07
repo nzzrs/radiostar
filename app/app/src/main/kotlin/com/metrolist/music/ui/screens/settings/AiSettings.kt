@@ -57,6 +57,7 @@ import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_BASE_URL
 import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_MODEL
 import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_PROVIDER
 import com.metrolist.music.constants.RadioStarDjApiKeyKey
+import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjBaseUrlKey
 import com.metrolist.music.constants.RadioStarDjModelKey
 import com.metrolist.music.constants.RadioStarDjProviderKey
@@ -85,6 +86,7 @@ fun AiSettings(navController: NavController) {
     var djBaseUrl by rememberPreference(RadioStarDjBaseUrlKey, RADIOSTAR_DEFAULT_DJ_BASE_URL)
     var djModel by rememberPreference(RadioStarDjModelKey, RADIOSTAR_DEFAULT_DJ_MODEL)
     var djKeyCipher by rememberPreference(RadioStarDjApiKeyKey, "")
+    var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
 
     val aiProviders =
         mapOf(
@@ -694,6 +696,7 @@ fun AiSettings(navController: NavController) {
 
         Spacer(modifier = Modifier.height(27.dp))
 
+        if (aiDjEnabled) {
         Material3SettingsGroup(
             title = stringResource(R.string.radiostar_dj_ai),
             items =
@@ -738,6 +741,7 @@ fun AiSettings(navController: NavController) {
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+        }
 
         Material3SettingsGroup(
             title = stringResource(R.string.ai_translation_mode),

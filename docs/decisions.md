@@ -428,6 +428,17 @@ test; the database rows, artist maps and generation path are verified.
   the TTS pitch/rate and the wording, not the recommendation math.
 - Starting the DJ is explicit. Only then does the app build an on-demand queue
   and talk between tracks. Nothing changes the queue outside a DJ session.
+- Tapping the card always starts a fresh session and expands the player. The
+  queue is prepared paused; the DJ intro is spoken first and playback starts
+  only when the utterance finishes.
+- The DJ session uses an empty backing queue so autoplay cannot extend it with
+  unrelated tracks. Starting any other queue ends the session and stops the
+  speech.
+- The speaking overlay is visible only while the player sheet is expanded.
+  Swipe down or Back closes it for the current utterance without stopping the
+  voice or the session.
+- **AI DJ** is a top-level switch. Off removes the Home card, DJ panel, speaking
+  overlay, DJ settings and the DJ group in AI settings. No announcement runs.
 - The DJ card starts the session; a discreet gear opens the settings panel.
   Save persists the wheel/persona and restarts the session. The panel no longer
   chooses the AI provider: that lives in Settings → AI (Gemini included).
@@ -486,7 +497,20 @@ test; the database rows, artist maps and generation path are verified.
 - The optional DJ AI key is encrypted with AES/GCM in the Android Keystore
   (`SecureKeyStore`); plaintext is never written to DataStore.
 
-## D-18 — History-based Weekly and Monthly Most
+## D-18 — Six o'clock playlist day and imported-first mixes
+
+**Status:** implemented.
+
+- The daily/weekly playlist day starts at **06:00 local time**. Before 06:00 the
+  previous day is still current, so leaving the app open overnight does not
+  rebuild at midnight. A 10-minute background check catches the rollover.
+- Imported listens are the primary anchor source. Local `event` rows are only a
+  fallback when no imported history exists. Daily anchors are resolved to
+  YouTube songs with a bounded, cached search.
+- If a window has no imported listens, the newest imported history is used
+  instead of silently switching back to Metrolist's local history.
+
+## D-19 — History-based Weekly and Monthly Most
 
 **Status:** implemented.
 
@@ -499,7 +523,7 @@ test; the database rows, artist maps and generation path are verified.
 - This avoids a second set of "RadioStar Most" playlists and the consistency
   cost of two competing statistics views.
 
-## D-19 — Local advanced telemetry
+## D-20 — Local advanced telemetry
 
 **Status:** implemented, opt-in, off by default.
 

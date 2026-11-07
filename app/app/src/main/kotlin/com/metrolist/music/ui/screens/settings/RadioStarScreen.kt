@@ -53,10 +53,13 @@ import com.metrolist.music.constants.ScrobblerApiKeyKey
 import com.metrolist.music.constants.ScrobblerBaseUrlKey
 import com.metrolist.music.constants.ScrobblerLastFmUserKey
 import com.metrolist.music.constants.ScrobblerLastResultKey
+import com.metrolist.music.constants.ScrobblerLastSyncKey
+import com.metrolist.music.constants.ScrobblerLastTotalKey
 import com.metrolist.music.constants.ScrobblerListenBrainzUserKey
 import com.metrolist.music.constants.ScrobblerServiceKey
 import com.metrolist.music.constants.ScrobblerSyncFrequencyKey
 import com.metrolist.music.constants.ScrobblerTokenKey
+import com.metrolist.music.recommend.ListenStore
 import com.metrolist.music.recommend.ScrobbleDestination
 import com.metrolist.music.recommend.ScrobblerConfig
 import com.metrolist.music.recommend.ScrobblerImporter
@@ -69,6 +72,8 @@ import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberPreference
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,7 +86,6 @@ fun RadioStarScreen(navController: NavController) {
 
     // Debug/test builds may configure the engine through globals. Until the
     // user changes something here, show the value the service is using.
-    val globalDj = remember { Settings.Global.getInt(context.contentResolver, "radiostar_dj", 0) == 1 }
     val globalServer =
         remember {
             Settings.Global
@@ -91,7 +95,7 @@ fun RadioStarScreen(navController: NavController) {
                 .orEmpty()
         }
 
-    var dj by rememberPreference(RadioStarDjKey, globalDj)
+    var dj by rememberPreference(RadioStarDjKey, true)
     var server by rememberPreference(RadioStarServerKey, globalServer)
 
     // Import source (where listens are read from).
@@ -103,9 +107,12 @@ fun RadioStarScreen(navController: NavController) {
     var importApiKey by rememberPreference(ScrobblerApiKeyKey, "")
     var syncFrequency by rememberPreference(ScrobblerSyncFrequencyKey, ScrobblerSyncFrequency.SIX_HOURS.id)
     var importStatus by rememberPreference(ScrobblerLastResultKey, "")
+    var lastChecked by rememberPreference(ScrobblerLastSyncKey, 0L)
+    var serviceTotal by rememberPreference(ScrobblerLastTotalKey, 0L)
     var importing by remember { mutableStateOf(false) }
     var progressFetched by remember { mutableIntStateOf(0) }
     var progressTotal by remember { mutableStateOf<Long?>(null) }
+    var localCount by remember { mutableIntStateOf(0) }
 
     // Outbound scrobbling (where new plays are sent).
     var destinationId by rememberPreference(ScrobbleDestinationKey, ScrobbleDestination.OFF.id)
@@ -134,6 +141,13 @@ fun RadioStarScreen(navController: NavController) {
         telemetryCount =
             withContext(Dispatchers.IO) {
                 TelemetryStore.count(context)
+            }
+    }
+
+    LaunchedEffect(importServiceId, lastChecked) {
+        localCount =
+            withContext(Dispatchers.IO) {
+                ListenStore(context).count()
             }
     }
 
@@ -311,10 +325,50 @@ fun RadioStarScreen(navController: NavController) {
                                                     }
                                                 }
                                             importStatus = result.message
+                                            localCount = result.localTotal
                                             importing = false
                                             if (result.complete) RadioStarRefreshBus.request()
                                         }
                                     }
+                                },
+                            ),
+                        )
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.music_note),
+                                title = { Text(stringResource(R.string.radiostar_local_listens)) },
+                                description = { Text(localCount.toString()) },
+                            ),
+                        )
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.cloud),
+                                title = { Text(stringResource(R.string.radiostar_service_listens)) },
+                                description = {
+                                    Text(
+                                        if (serviceTotal > 0L) {
+                                            serviceTotal.toString()
+                                        } else {
+                                            stringResource(R.string.not_set)
+                                        },
+                                    )
+                                },
+                            ),
+                        )
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.sync),
+                                title = { Text(stringResource(R.string.radiostar_last_checked)) },
+                                description = {
+                                    Text(
+                                        if (lastChecked > 0L) {
+                                            DateFormat
+                                                .getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                                .format(Date(lastChecked))
+                                        } else {
+                                            stringResource(R.string.radiostar_scrobbler_never)
+                                        },
+                                    )
                                 },
                             ),
                         )
@@ -338,6 +392,13 @@ fun RadioStarScreen(navController: NavController) {
                         )
                     }
                 },
+        )
+
+        Text(
+            text = stringResource(R.string.radiostar_import_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
 
         Spacer(modifier = Modifier.height(16.dp))

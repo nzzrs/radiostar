@@ -112,6 +112,7 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.RadioStarDjAiKey
+import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
 import com.metrolist.music.constants.RadioStarDjLikelyKey
@@ -690,6 +691,7 @@ fun HomeScreen(
     var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
     var showDjPanel by remember { mutableStateOf(false) }
     var djAi by rememberPreference(RadioStarDjAiKey, false)
+    var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
     val djScope = rememberCoroutineScope()
     val startDj: (DjConfig) -> Unit = { config ->
@@ -1234,6 +1236,7 @@ fun HomeScreen(
                     )
                 }
 
+                if (aiDjEnabled) {
                 item(key = "radiostar_dj") {
                     DjHomeCard(
                         config = djConfig,
@@ -1258,6 +1261,7 @@ fun HomeScreen(
                             },
                         )
                     }
+                }
                 }
 
                 if (isLoading && homePage?.chips.isNullOrEmpty()) {

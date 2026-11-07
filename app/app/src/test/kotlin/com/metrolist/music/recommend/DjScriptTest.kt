@@ -70,6 +70,29 @@ class DjScriptTest {
     }
 
     @Test
+    fun `intro mentions the first track and the persona`() {
+        val line = DjScript.intro(DjPersona.CHERRY, "ANSIEDAD", "Fuerza Regida", "es-MX")
+        assertTrue(line.contains("Cherry"))
+        assertTrue(line.contains("ANSIEDAD"))
+        assertTrue(line.contains("Fuerza Regida"))
+        assertFalse(line.contains("let the beat", ignoreCase = true))
+    }
+
+    @Test
+    fun `intro is not generic and changes with the track`() {
+        val first = DjScript.intro(DjPersona.LEMON, "One", "Artist A", "en")
+        val second = DjScript.intro(DjPersona.LEMON, "Two", "Artist B", "en")
+        assertTrue(first.contains("One"))
+        assertTrue(second.contains("Two"))
+        assertFalse(first == second)
+    }
+
+    @Test
+    fun `intro without a title is silent`() {
+        assertEquals("", DjScript.intro(DjPersona.CHERRY, "  ", "Artist", "es"))
+    }
+
+    @Test
     fun `whitespace and newlines are collapsed`() {
         assertEquals(
             "A continuación: Una canción, de Un artista.",

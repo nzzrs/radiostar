@@ -30,6 +30,36 @@ object DjScript {
         return remaining in minLeadMs..leadMs
     }
 
+    fun intro(
+        persona: DjPersona,
+        firstTitle: String,
+        firstArtist: String,
+        language: String,
+    ): String {
+        val title = clean(firstTitle)
+        if (title.isEmpty()) return ""
+        val artist = clean(firstArtist)
+        val track = if (artist.isEmpty()) title else "$title de $artist"
+        val trackEn = if (artist.isEmpty()) title else "$title by $artist"
+        val name = persona.displayName.removePrefix("DJ ")
+        val variants =
+            if (language.lowercase().startsWith("es")) {
+                listOf(
+                    "Soy $name. Abrimos con $track.",
+                    "Aquí $name. Primera parada: $track.",
+                    "$name al habla. Arrancamos con $track.",
+                )
+            } else {
+                listOf(
+                    "I'm $name. We start with $trackEn.",
+                    "$name here. First stop: $trackEn.",
+                    "$name on the mic. Opening with $trackEn.",
+                )
+            }
+        return variants[(System.currentTimeMillis() / 60_000L % variants.size).toInt()]
+            .take(MAX_CHARS)
+    }
+
     fun announcement(
         title: String,
         artist: String,

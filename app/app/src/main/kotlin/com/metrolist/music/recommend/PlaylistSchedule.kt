@@ -6,6 +6,7 @@
 package com.metrolist.music.recommend
 
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.temporal.WeekFields
 
 data class PlaylistRefreshPlan(
@@ -19,6 +20,16 @@ data class PlaylistRefreshPlan(
  * not regenerate them.
  */
 object PlaylistSchedule {
+    /**
+     * The playlist day starts at 06:00 local time. Before 06:00 the previous
+     * day is still current, so an app left open overnight does not rebuild at
+     * midnight.
+     */
+    const val DAY_START_HOUR = 6L
+
+    fun scheduleDate(now: LocalDateTime): LocalDate =
+        now.minusHours(DAY_START_HOUR).toLocalDate()
+
     fun plan(
         today: LocalDate,
         lastDailyStamp: String?,

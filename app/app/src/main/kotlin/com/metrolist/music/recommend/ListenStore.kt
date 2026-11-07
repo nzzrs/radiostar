@@ -52,6 +52,14 @@ class ListenStore(context: Context) {
         return result
     }
 
+    /** Fast line count; does not parse the JSON records. */
+    fun count(): Int {
+        if (!file.exists()) return 0
+        return runCatching {
+            file.useLines { lines -> lines.count { it.isNotBlank() } }
+        }.getOrDefault(0)
+    }
+
     fun append(records: List<ImportedListen>): Int {
         if (records.isEmpty()) return 0
         val existing = load().mapTo(HashSet()) { fingerprint(it) }

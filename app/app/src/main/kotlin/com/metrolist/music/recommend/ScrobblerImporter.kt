@@ -13,6 +13,8 @@ import com.metrolist.music.constants.LastWeeklyMostPlaylistSyncKey
 import com.metrolist.music.constants.ScrobblerBaseUrlKey
 import com.metrolist.music.constants.ScrobblerCheckpointsKey
 import com.metrolist.music.constants.ScrobblerLastFmUserKey
+import com.metrolist.music.constants.ScrobblerLastSyncKey
+import com.metrolist.music.constants.ScrobblerLastTotalKey
 import com.metrolist.music.constants.ScrobblerListenBrainzUserKey
 import com.metrolist.music.constants.ScrobblerServiceKey
 import com.metrolist.music.constants.ScrobblerTokenKey
@@ -53,6 +55,7 @@ data class ListenImportResult(
     val total: Long?,
     val complete: Boolean,
     val message: String,
+    val localTotal: Int = 0,
 )
 
 /**
@@ -169,6 +172,7 @@ object ScrobblerImporter {
                     }
                     ScrobblerService.NONE -> Unit
                 }
+                val localTotal = store.count()
                 if (complete) saveCheckpoint(context, config.service, maxSeen)
                 if (complete) {
                     // Imported history may already exist from an older build;
@@ -177,20 +181,28 @@ object ScrobblerImporter {
                     context.dataStore.edit {
                         it[LastWeeklyMostPlaylistSyncKey] = 0L
                         it[LastMonthlyMostPlaylistSyncKey] = 0L
+                        it[ScrobblerLastSyncKey] = System.currentTimeMillis()
+                        it[ScrobblerLastTotalKey] = total ?: 0L
                     }
                 }
+                val serviceTotal = total?.toString() ?: "?"
+                val checked =
+                    if (since > 0L) {
+                        "Incremental check: $fetched newest. Service $serviceTotal; local $localTotal."
+                    } else {
+                        "Full check: $fetched of $serviceTotal; local $localTotal."
+                    }
                 ListenImportResult(
                     added = added,
                     fetched = fetched,
                     total = total,
                     complete = complete,
+                    localTotal = localTotal,
                     message =
                         when {
-                            fetched == 0 -> "No new listens"
-                            total != null && complete -> "Imported $added new; checked $fetched/$total"
-                            total != null -> "Imported $added new; checked $fetched/$total; incomplete, will retry"
-                            complete -> "Imported $added of $fetched"
-                            else -> "Imported $added of $fetched; incomplete, will retry"
+                            !complete -> "Imported $added new. $checked Incomplete, will retry."
+                            fetched == 0 -> "No new listens. $checked"
+                            else -> "Imported $added new. $checked"
                         },
                 )
             } catch (error: Throwable) {

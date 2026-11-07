@@ -462,6 +462,8 @@ class MusicService :
     private val sessionState = SessionState()
     private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
     @Volatile private var radioStarDj = false
+    @Volatile private var aiDjEnabled = true
+    @Volatile private var djSessionId = 0
     @Volatile private var djAiEnabled = false
     private val djHandler = Handler(Looper.getMainLooper())
     private var djAnnouncer: DjAnnouncer? = null
@@ -1855,6 +1857,7 @@ class MusicService :
             return
         }
 
+        endDjSession()
         currentQueue = queue
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
@@ -1917,12 +1920,14 @@ class MusicService :
     }
 
     fun adoptQueue(queue: Queue, title: String? = null, initialQueueSize: Int = 0) {
+        endDjSession()
         currentQueue = queue
         queueTitle = title
         originalQueueSize = initialQueueSize
     }
 
     fun startRadioSeamlessly() {
+        endDjSession()
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("startRadioSeamlessly called before player initialization")
             return
@@ -2737,6 +2742,8 @@ class MusicService :
                 if (castConnectionHandler?.isCasting?.value != true) {
                     player.play()
                 }
+            } else if (radioStarDj && !player.hasNextMediaItem()) {
+                endDjSession()
             }
         }
 
@@ -4201,42 +4208,87 @@ class MusicService :
     fun playDjSession(items: List<MediaItem>, persona: DjPersona) {
         if (items.isEmpty()) return
         scope.launch(Dispatchers.Main) {
+            if (!aiDjEnabled) return@launch
+            val sessionId = ++djSessionId
+            player.stop()
+            player.playWhenReady = false
             player.setMediaItems(items, 0, 0L)
             player.prepare()
-            player.play()
+            currentQueue = EmptyQueue
+            queueTitle = null
+            originalQueueSize = items.size
             radioStarDj = true
             djPersona = persona
             announcedPair = null
             DjSessionState.speaking(persona)
-            scope.launch {
-                kotlinx.coroutines.delay(8_000)
-                if (DjSessionState.state.value.speaking) DjSessionState.playing(persona)
-            }
+            DjSessionState.requestPlayerOpen()
             val announcer =
                 djAnnouncer
                     ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
                         .also { djAnnouncer = it }
             announcer.setVoice(persona.pitch, persona.rate)
             announcer.prepare()
-            announcer.announce(
-                "${persona.displayName}. Let the beat play.",
-                "dj:intro:${System.nanoTime()}",
-            )
+            val first = items.firstOrNull()?.mediaMetadata
+            val firstTitle = first?.title?.toString().orEmpty()
+            val firstArtist = first?.artist?.toString().orEmpty()
+            val fallback =
+                DjScript.intro(
+                    persona = persona,
+                    firstTitle = firstTitle,
+                    firstArtist = firstArtist,
+                    language = java.util.Locale.getDefault().language,
+                )
+            val startPlayback = {
+                if (radioStarDj && sessionId == djSessionId && ::player.isInitialized) {
+                    player.play()
+                }
+            }
+            val speak: (String) -> Unit = { line ->
+                val spoken =
+                    announcer.announce(
+                        line,
+                        "dj:intro:${System.nanoTime()}",
+                        onDone = { scope.launch(Dispatchers.Main) { startPlayback() } },
+                    )
+                if (!spoken) startPlayback()
+            }
+            if (djAiEnabled) {
+                scope.launch {
+                    val ai =
+                        kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                            DjAiCommentator.intro(this@MusicService, persona, firstTitle, firstArtist)
+                        }
+                    djHandler.post {
+                        if (radioStarDj && sessionId == djSessionId) speak(ai ?: fallback)
+                    }
+                }
+            } else {
+                speak(fallback)
+            }
             Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
         }
+    }
+
+    /** Ends the DJ session without stopping ordinary playback. */
+    private fun endDjSession() {
+        if (!radioStarDj) return
+        radioStarDj = false
+        djSessionId++
+        announcedPair = null
+        djPersona = null
+        djAnnouncer?.shutdown()
+        djAnnouncer = null
+        DjSessionState.idle()
+        Timber.tag("RadioStarDj").i("end session")
     }
 
     /** Mirrors the DJ preference into a volatile field for the player thread. */
     private fun observeRadioStarSettings() {
         applicationScope.launch {
             dataStore.data.collect { prefs ->
-                radioStarDj =
-                    prefs[RadioStarDjKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_dj", 0) == 1)
+                aiDjEnabled = prefs[RadioStarDjKey] ?: true
                 djAiEnabled = prefs[RadioStarDjAiKey] ?: false
-                if (!radioStarDj) {
-                    djAnnouncer?.shutdown()
-                    djAnnouncer = null
-                }
+                if (!aiDjEnabled) endDjSession()
             }
         }
     }

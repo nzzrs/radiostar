@@ -32,6 +32,8 @@ class DjAnnouncer(
     private var tts: TextToSpeech? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var currentUtterance: String? = null
+    private var currentOnDone: (() -> Unit)? = null
+    private var pending: PendingUtterance? = null
     private var ducked = false
     private var pitch = 0.95f
     private var rate = 0.98f
@@ -45,6 +47,9 @@ class DjAnnouncer(
             TextToSpeech(appContext) { status ->
                 if (status != TextToSpeech.SUCCESS) {
                     Timber.tag(TAG).w("tts init failed status=%d", status)
+                    val failed = pending
+                    pending = null
+                    failed?.onDone?.invoke()
                     return@TextToSpeech
                 }
                 configure()
@@ -91,6 +96,10 @@ class DjAnnouncer(
             },
         )
         ready = true
+        pending?.let { queued ->
+            pending = null
+            speakNow(queued.text, queued.id, queued.onDone)
+        }
     }
 
     fun setVoice(pitch: Float, rate: Float) {
@@ -102,16 +111,30 @@ class DjAnnouncer(
         }
     }
 
-    fun announce(text: String, utteranceId: String): Boolean {
+    fun announce(
+        text: String,
+        utteranceId: String,
+        onDone: (() -> Unit)? = null,
+    ): Boolean {
         if (text.isBlank()) return false
         if (!ready) {
+            pending = PendingUtterance(text, utteranceId, onDone)
             prepare()
-            return false
+            return true
         }
+        return speakNow(text, utteranceId, onDone)
+    }
+
+    private fun speakNow(
+        text: String,
+        utteranceId: String,
+        onDone: (() -> Unit)?,
+    ): Boolean {
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f)
         }
         currentUtterance = utteranceId
+        currentOnDone = onDone
         duck()
         acquireWakeLock()
         val result =
@@ -138,6 +161,8 @@ class DjAnnouncer(
         tts = null
         ready = false
         currentUtterance = null
+        currentOnDone = null
+        pending = null
         releaseWakeLock()
         unduck()
     }
@@ -145,8 +170,11 @@ class DjAnnouncer(
     private fun finish(utteranceId: String?) {
         if (utteranceId != currentUtterance) return
         currentUtterance = null
+        val callback = currentOnDone
+        currentOnDone = null
         releaseWakeLock()
         unduck()
+        callback?.invoke()
     }
 
     private fun duck() {
@@ -184,6 +212,12 @@ class DjAnnouncer(
             // Best effort.
         }
     }
+
+    private data class PendingUtterance(
+        val text: String,
+        val id: String,
+        val onDone: (() -> Unit)?,
+    )
 
     private companion object {
         const val TAG = "RadioStarDj"

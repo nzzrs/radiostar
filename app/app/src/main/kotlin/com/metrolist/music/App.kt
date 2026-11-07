@@ -99,7 +99,12 @@ class App :
         // Build the daily/weekly playlists in the background. This only writes
         // local playlist rows; it never changes the playback queue.
         applicationScope.launch(Dispatchers.IO) {
-            radioStarRepository.refreshIfDue()
+            // Check periodically so a session left open past 06:00 rebuilds
+            // the daily lists without waiting for a restart.
+            while (true) {
+                radioStarRepository.refreshIfDue()
+                delay(10 * 60_000L)
+            }
         }
         applicationScope.launch(Dispatchers.IO) {
             ScrobblerSync.syncIfDue(this@App)
