@@ -421,7 +421,13 @@
     <string name="radiostar_dj_ai">DJ commentary</string>
     <string name="radiostar_dj_ai_key">API key for DJ commentary</string>
     <string name="radiostar_dj_ai_key_help">Stored encrypted with the Android Keystore. Used only for spoken links between tracks.</string>
-    <string name="radiostar_local_listens">Listens on this phone</string>
+    <string name="ai_test_connection">Test connection</string>
+    <string name="ai_model_filter">Filter models</string>
+    <string name="ai_no_models">No models found</string>
+    <string name="ai_custom_model">Custom model</string>
+    <string name="radiostar_play_playlist">Play playlist</string>
+    <string name="radiostar_telemetry_clear_confirm">Delete all local telemetry events? This cannot be undone.</string>
+    <string name="radiostar_local_listens">Local listens for this service</string>
     <string name="radiostar_service_listens">Listens on the service</string>
     <string name="radiostar_last_checked">Last checked</string>
     <string name="radiostar_import_hint">Incremental sync checks the newest page and stops at the saved checkpoint. If the phone has fewer listens than the service, it repairs the full history from zero.</string>

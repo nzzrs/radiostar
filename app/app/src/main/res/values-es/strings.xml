@@ -364,7 +364,13 @@
     <string name="radiostar_dj_ai">Comentarios del DJ</string>
     <string name="radiostar_dj_ai_key">Clave API para comentarios del DJ</string>
     <string name="radiostar_dj_ai_key_help">Se guarda cifrada con el Android Keystore. Solo se usa para los enlaces hablados entre canciones.</string>
-    <string name="radiostar_local_listens">Listens en este teléfono</string>
+    <string name="ai_test_connection">Probar conexión</string>
+    <string name="ai_model_filter">Filtrar modelos</string>
+    <string name="ai_no_models">No se encontraron modelos</string>
+    <string name="ai_custom_model">Modelo personalizado</string>
+    <string name="radiostar_play_playlist">Reproducir playlist</string>
+    <string name="radiostar_telemetry_clear_confirm">¿Borrar todos los eventos de telemetría local? No se puede deshacer.</string>
+    <string name="radiostar_local_listens">Listens locales de este servicio</string>
     <string name="radiostar_service_listens">Listens en el servicio</string>
     <string name="radiostar_last_checked">Última comprobación</string>
     <string name="radiostar_import_hint">La sincronización incremental revisa la página más nueva y se detiene en el punto guardado. Si el teléfono tiene menos listens que el servicio, repara el historial completo desde cero.</string>
