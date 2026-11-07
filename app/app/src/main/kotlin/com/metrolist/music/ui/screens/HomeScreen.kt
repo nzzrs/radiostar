@@ -111,6 +111,10 @@ import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.AiProviderKey
+import com.metrolist.music.constants.OpenRouterBaseUrlKey
+import com.metrolist.music.constants.OpenRouterModelKey
+import com.metrolist.music.constants.RadioStarDjAiKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
 import com.metrolist.music.constants.RadioStarDjLikelyKey
@@ -688,6 +692,10 @@ fun HomeScreen(
     var djFar by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
     var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
     var showDjPanel by remember { mutableStateOf(false) }
+    var djAi by rememberPreference(RadioStarDjAiKey, false)
+    var aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
+    var aiBase by rememberPreference(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
+    var aiModel by rememberPreference(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
     val djScope = rememberCoroutineScope()
 
@@ -1226,6 +1234,22 @@ fun HomeScreen(
                     if (showDjPanel) {
                         DjPanelDialog(
                             config = djConfig,
+                            aiEnabled = djAi,
+                            aiProvider = aiProvider,
+                            onAiChange = { djAi = it },
+                            onAiProviderChange = { provider ->
+                                aiProvider = provider
+                                when (provider) {
+                                    "OpenRouter" -> {
+                                        aiBase = "https://openrouter.ai/api/v1/chat/completions"
+                                        aiModel = "google/gemini-2.5-flash-lite"
+                                    }
+                                    "OpenAI" -> {
+                                        aiBase = "https://api.openai.com/v1/chat/completions"
+                                        aiModel = "gpt-4o-mini"
+                                    }
+                                }
+                            },
                             onConfigChange = { config ->
                                 djPersona = config.persona
                                 djKnown = config.known

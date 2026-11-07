@@ -89,6 +89,10 @@ fun DjHomeCard(
 @Composable
 fun DjPanelDialog(
     config: DjConfig,
+    aiEnabled: Boolean,
+    aiProvider: String,
+    onAiChange: (Boolean) -> Unit,
+    onAiProviderChange: (String) -> Unit,
     onConfigChange: (DjConfig) -> Unit,
     onDismiss: () -> Unit,
     onStart: () -> Unit,
@@ -124,6 +128,28 @@ fun DjPanelDialog(
                     value = config.far,
                     onChange = { onConfigChange(config.copy(far = it)) },
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "AI commentary",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    androidx.compose.material3.Switch(checked = aiEnabled, onCheckedChange = onAiChange)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    listOf("OpenRouter", "OpenAI", "Custom").forEach { provider ->
+                        FilterChip(
+                            selected = aiProvider == provider,
+                            onClick = { onAiProviderChange(provider) },
+                            label = { Text(provider) },
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.radiostar_dj_personality),

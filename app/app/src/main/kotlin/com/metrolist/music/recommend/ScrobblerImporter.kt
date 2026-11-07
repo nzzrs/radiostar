@@ -48,6 +48,8 @@ data class ScrobblerConfig(
 data class ListenImportResult(
     val added: Int,
     val fetched: Int,
+    val total: Long?,
+    val complete: Boolean,
     val message: String,
 )
 
@@ -60,31 +62,44 @@ data class ListenImportResult(
  */
 object ScrobblerImporter {
     private const val TAG = "RadioStarScrobble"
-    private const val MAX_PAGES = 100
+    private const val MAX_PAGES = 1000
     private const val PAGE_DELAY_MS = 300L
 
-    suspend fun import(context: Context, config: ScrobblerConfig): ListenImportResult =
+    suspend fun import(
+        context: Context,
+        config: ScrobblerConfig,
+        onProgress: (Int, Long?) -> Unit = { _, _ -> },
+    ): ListenImportResult =
         withContext(Dispatchers.IO) {
             if (config.service == ScrobblerService.NONE) {
-                return@withContext ListenImportResult(0, 0, "No scrobbler selected")
+                return@withContext ListenImportResult(0, 0, null, false, "No scrobbler selected")
             }
             val prefs = context.dataStore.data.first()
             val checkpoints = runCatching { JSONObject(prefs[ScrobblerCheckpointsKey].orEmpty()) }.getOrDefault(JSONObject())
-            val since = checkpoints.optLong(config.service.id, 0L)
+            var since = checkpoints.optLong(config.service.id, 0L)
             val store = ListenStore(context)
             var fetched = 0
             var added = 0
             var maxSeen = since
+            var complete = false
+            val total = fetchTotal(config)
+            // A previous capped run may have saved a checkpoint with only part
+            // of the history. Backfill from zero when the local count is short.
+            if (total != null && since > 0L) {
+                val existing = store.load().count { it.service == config.service.id }
+                if (existing < total - 5L) since = 0L
+            }
             try {
                 when (config.service) {
                     ScrobblerService.LASTFM -> {
                         val user = config.lastFmUser.trim()
-                        if (user.isEmpty()) return@withContext ListenImportResult(0, 0, "Last.fm username missing")
+                        if (user.isEmpty()) return@withContext ListenImportResult(0, 0, null, false, "Last.fm username missing")
                         val apiKey = config.apiKey.trim().ifBlank { BuildConfig.LASTFM_API_KEY }
                         if (apiKey.isEmpty()) {
-                            return@withContext ListenImportResult(0, 0, "Last.fm API key not configured")
+                            return@withContext ListenImportResult(0, 0, null, false, "Last.fm API key not configured")
                         }
                         for (page in 1..MAX_PAGES) {
+                            if (since == 0L && total != null && fetched >= total) break
                             val url =
                                 "https://ws.audioscrobbler.com/2.0/?method=user.getRecentTracks" +
                                     "&user=${encode(user)}&api_key=${encode(apiKey)}" +
@@ -94,15 +109,17 @@ object ScrobblerImporter {
                             val recent = body.optJSONObject("recenttracks") ?: break
                             val tracks = recent.opt("track").asArray()
                             if (tracks.isEmpty()) break
-                            val records = tracks.mapNotNull { it.toLastFmListen(fetched = fetched) }
+                            val records = tracks.mapNotNull { it.toLastFmListen() }
                             fetched += tracks.size
                             val pageMax = records.maxOfOrNull { it.listenedAt } ?: 0L
                             if (pageMax > maxSeen) maxSeen = pageMax
                             added += store.append(records)
+                            onProgress(fetched, total)
                             val totalPages = recent.optJSONObject("@attr")?.optInt("totalPages", page) ?: page
-                            if (records.isEmpty() || page >= totalPages) break
+                            if (page >= totalPages) break
                             delay(PAGE_DELAY_MS)
                         }
+                        complete = since > 0L || total == null || fetched >= total - 2
                     }
                     ScrobblerService.LISTENBRAINZ,
                     ScrobblerService.SELF_HOSTED,
@@ -114,7 +131,7 @@ object ScrobblerImporter {
                                 config.lastFmUser.trim().ifBlank { config.listenBrainzUser.trim() }
                             }
                         if (user.isEmpty()) {
-                            return@withContext ListenImportResult(0, 0, "ListenBrainz username missing")
+                            return@withContext ListenImportResult(0, 0, null, false, "ListenBrainz username missing")
                         }
                         val root =
                             if (config.service == ScrobblerService.LISTENBRAINZ) {
@@ -122,9 +139,10 @@ object ScrobblerImporter {
                             } else {
                                 config.baseUrl.trim().trimEnd('/')
                             }
-                        if (root.isBlank()) return@withContext ListenImportResult(0, 0, "Server URL missing")
+                        if (root.isBlank()) return@withContext ListenImportResult(0, 0, null, false, "Server URL missing")
                         var cursor = since
                         for (page in 1..MAX_PAGES) {
+                            if (since == 0L && total != null && fetched >= total) break
                             val url =
                                 "$root/1/user/${encode(user)}/listens?count=100" +
                                     if (cursor > 0) "&max_ts=$cursor" else ""
@@ -136,24 +154,76 @@ object ScrobblerImporter {
                             val pageMax = records.maxOfOrNull { it.listenedAt } ?: 0L
                             if (pageMax > maxSeen) maxSeen = pageMax
                             added += store.append(records)
+                            onProgress(fetched, total)
                             cursor = (records.minOfOrNull { it.listenedAt } ?: 1L) - 1L
                             if (cursor <= 0) break
                             delay(PAGE_DELAY_MS)
                         }
+                        complete = since > 0L || total == null || fetched >= total - 2
                     }
                     ScrobblerService.NONE -> Unit
                 }
-                saveCheckpoint(context, config.service, maxSeen)
+                if (complete) saveCheckpoint(context, config.service, maxSeen)
                 ListenImportResult(
                     added = added,
                     fetched = fetched,
-                    message = if (fetched == 0) "No new listens" else "Imported $added of $fetched",
+                    total = total,
+                    complete = complete,
+                    message =
+                        when {
+                            fetched == 0 -> "No new listens"
+                            complete -> "Imported $added of $fetched"
+                            else -> "Imported $added of $fetched; incomplete, will retry"
+                        },
                 )
             } catch (error: Throwable) {
                 Timber.tag(TAG).e(error, "listen import failed")
-                ListenImportResult(added, fetched, "Import failed: ${error.message ?: "network error"}")
+                ListenImportResult(
+                    added,
+                    fetched,
+                    total,
+                    false,
+                    "Import failed: ${error.message ?: "network error"}",
+                )
             }
         }
+
+    private fun fetchTotal(config: ScrobblerConfig): Long? =
+        runCatching {
+            when (config.service) {
+                ScrobblerService.LASTFM -> {
+                    val user = config.lastFmUser.trim()
+                    val apiKey = config.apiKey.trim().ifBlank { BuildConfig.LASTFM_API_KEY }
+                    if (user.isEmpty() || apiKey.isEmpty()) return null
+                    val body =
+                        getJson(
+                            "https://ws.audioscrobbler.com/2.0/?method=user.getInfo" +
+                                "&user=${encode(user)}&api_key=${encode(apiKey)}&format=json",
+                        )
+                    body.optJSONObject("user")?.optString("playcount")?.toLongOrNull()
+                }
+                ScrobblerService.LISTENBRAINZ,
+                ScrobblerService.SELF_HOSTED,
+                -> {
+                    val user =
+                        if (config.service == ScrobblerService.LISTENBRAINZ) {
+                            config.listenBrainzUser.trim()
+                        } else {
+                            config.lastFmUser.trim().ifBlank { config.listenBrainzUser.trim() }
+                        }
+                    val root =
+                        if (config.service == ScrobblerService.LISTENBRAINZ) {
+                            "https://api.listenbrainz.org"
+                        } else {
+                            config.baseUrl.trim().trimEnd('/')
+                        }
+                    if (user.isEmpty() || root.isBlank()) return null
+                    val body = getJson("$root/1/user/${encode(user)}/listen-count", config.token.trim())
+                    body.optJSONObject("payload")?.optLong("count")
+                }
+                ScrobblerService.NONE -> null
+            }
+        }.getOrNull()
 
     private suspend fun saveCheckpoint(
         context: Context,
@@ -194,7 +264,7 @@ object ScrobblerImporter {
         throw last ?: IllegalStateException("request failed")
     }
 
-    private fun JSONObject.toLastFmListen(fetched: Int): ImportedListen? {
+    private fun JSONObject.toLastFmListen(): ImportedListen? {
         if (optJSONObject("@attr")?.optString("nowplaying") == "true") return null
         val timestamp = optJSONObject("date")?.optString("uts")?.toLongOrNull() ?: return null
         val title = optString("name")

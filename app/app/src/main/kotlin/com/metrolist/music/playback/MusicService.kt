@@ -213,11 +213,13 @@ import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import androidx.datastore.preferences.core.edit
+import com.metrolist.music.constants.RadioStarDjAiKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarProfilesKey
 import com.metrolist.music.recommend.AudioFeatures
 import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
+import com.metrolist.music.recommend.DjAiCommentator
 import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjScript
 import com.metrolist.music.recommend.TempoKeyEstimator
@@ -456,11 +458,13 @@ class MusicService :
     private val sessionState = SessionState()
     private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
     @Volatile private var radioStarDj = false
+    @Volatile private var djAiEnabled = false
     private val djHandler = Handler(Looper.getMainLooper())
     private var djAnnouncer: DjAnnouncer? = null
     private var announcedPair: String? = null
     private var djTickerStarted = false
     private var djBaseVolume = 1f
+    @Volatile private var djPersona: DjPersona? = null
 
     private var loudnessSetupJob: Job? = null
     private var loudnessSetupGeneration: Long = 0L
@@ -4159,6 +4163,7 @@ class MusicService :
             player.prepare()
             player.play()
             radioStarDj = true
+            djPersona = persona
             announcedPair = null
             val announcer =
                 djAnnouncer
@@ -4180,6 +4185,7 @@ class MusicService :
             dataStore.data.collect { prefs ->
                 radioStarDj =
                     prefs[RadioStarDjKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_dj", 0) == 1)
+                djAiEnabled = prefs[RadioStarDjAiKey] ?: false
                 if (!radioStarDj) {
                     djAnnouncer?.shutdown()
                     djAnnouncer = null
@@ -4215,10 +4221,12 @@ class MusicService :
         if (pair == announcedPair) return
         if (!DjScript.shouldAnnounce(player.currentPosition, player.duration, false, true)) return
 
+        val nextTitle = next.mediaMetadata.title?.toString().orEmpty()
+        val nextArtist = next.mediaMetadata.artist?.toString().orEmpty()
         val text =
             DjScript.announcement(
-                title = next.mediaMetadata.title?.toString().orEmpty(),
-                artist = next.mediaMetadata.artist?.toString().orEmpty(),
+                title = nextTitle,
+                artist = nextArtist,
                 language = java.util.Locale.getDefault().language,
             )
         if (text.isEmpty()) return
@@ -4229,8 +4237,30 @@ class MusicService :
                     djHandler.post { applyDjDuck(ducked) }
                 }.also { djAnnouncer = it }
         announcer.prepare()
-        if (announcer.announce(text, "dj:$pair")) {
-            announcedPair = pair
+        announcedPair = pair
+        if (djAiEnabled) {
+            val previous =
+                listOfNotNull(
+                    current.mediaMetadata.title?.toString(),
+                    current.mediaMetadata.artist?.toString(),
+                ).joinToString(" - ")
+            scope.launch {
+                val ai =
+                    DjAiCommentator.comment(
+                        context = this@MusicService,
+                        persona = djPersona ?: DjPersona.CHERRY,
+                        previous = previous,
+                        nextTitle = nextTitle,
+                        nextArtist = nextArtist,
+                    )
+                djHandler.post {
+                    val line = ai ?: text
+                    if (announcer.announce(line, "dj:$pair")) {
+                        Timber.tag("RadioStarDj").i("announce ai=%s pair=%s text=%s", ai != null, pair, line)
+                    }
+                }
+            }
+        } else if (announcer.announce(text, "dj:$pair")) {
             Timber.tag("RadioStarDj").i("announce pair=%s text=%s", pair, text)
         }
     }
