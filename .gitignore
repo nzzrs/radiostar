@@ -34,3 +34,13 @@ spike/**/*.pt
 /*.pt
 /*.tmp
 /630k-*.pt*
+*.p12
+*.pfx
+key.properties
+key.properties.bak.*
+keystore.properties
+keystore.properties.bak.*
+**/key.properties
+**/key.properties.bak.*
+**/keystore.properties
+**/keystore.properties.bak.*
