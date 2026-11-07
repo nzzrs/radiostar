@@ -18,15 +18,23 @@ turned into generated playlists. RadioStar never changes what the user chose
 to play: there is no queue injection and no mix mode.
 
 Home shows **RadioStar playlists**: Daily Discover, Daily Jam, Daily Explore
-and their weekly versions, rebuilt once per day or week, plus a separate
-**DJ Cherry** block with a wheel for familiar/far/likely tracks and fruit
-personas. The app never changes the queue outside an explicit DJ start.
+and their weekly versions. The playlist day starts at **06:00 local time**, and
+daily/weekly lists are rebuilt from imported listens first, with local events
+only as fallback. A separate **AI DJ** block (optional) offers a wheel for
+familiar/far/likely tracks and fruit personas. The app never changes the queue
+outside an explicit DJ start. A DJ session is not a playlist: it starts fresh,
+waits for the track-aware intro before playing, and ends when another queue
+starts.
 
 `Settings → RadioStar` imports listens from Last.fm, ListenBrainz or a
-self-hosted compatible server into the phone, with a service picker, a
-`fetched / total` progress bar, sync frequency and automatic playlist refresh
-after a complete import. Imported listens feed the taste centroid and
-discovery exclusions.
+self-hosted compatible server into the phone. It shows the incremental page,
+local count, service total, last check and a `fetched / total` progress bar.
+Sync frequency is configurable and a complete import triggers a playlist
+refresh. Imported listens are the primary anchor and taste signal.
+
+**Scrobble service** is a separate destination setting: Off (default), Last.fm,
+ListenBrainz, Custom or External scrobbler. **Advanced telemetry** is local,
+opt-in and off by default; it never leaves the phone.
 
 ## Build and run
 
@@ -39,7 +47,7 @@ adb install -r app/build/outputs/apk/foss/debug/app-foss-debug.apk
 ```
 
 Only `arm64-v8a` is packaged. A release build is unsigned (no release keystore
-in the repository) and measures about 83 MB.
+in the repository) and measures about 80 MB.
 
 The laptop embedding server is optional but cold candidates need it:
 
@@ -59,7 +67,7 @@ adb shell settings put global radiostar_embed_server http://<laptop>:8787
 ```bash
 python3 -m pytest spike -q                    # kernel + identity, 55 tests
 python3 -m unittest scripts/test_listenbrainz_export.py
-cd app && ./gradlew :app:testFossDebugUnitTest  # 95 recommendation tests
+cd app && ./gradlew :app:testFossDebugUnitTest  # 103 recommendation tests
 ```
 
 ## Branches
@@ -77,8 +85,11 @@ git switch dev && git merge --no-ff feature/my-feature
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the arc42 description:
-playlists, scheduling, scrobbler import, DJ Cherry and deployment.
+See [docs/README.md](docs/README.md) for the documentation index.
+[docs/architecture.md](docs/architecture.md) has the arc42 description and
+[docs/c4-model.md](docs/c4-model.md) the C4 context, container, component,
+code and deployment views. It covers playlists, 06:00 scheduling, imported
+history, AI DJ sessions, scrobbler import/export, telemetry and deployment.
 Credits and licences: [docs/CREDITS.md](docs/CREDITS.md).
 
 ## Decisions
