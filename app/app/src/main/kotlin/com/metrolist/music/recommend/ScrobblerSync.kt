@@ -7,6 +7,13 @@ package com.metrolist.music.recommend
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.metrolist.music.constants.LastMonthlyMostPlaylistSyncKey
 import com.metrolist.music.constants.LastWeeklyMostPlaylistSyncKey
 import com.metrolist.music.constants.ScrobblerApiKeyKey
@@ -18,6 +25,7 @@ import com.metrolist.music.constants.ScrobblerServiceKey
 import com.metrolist.music.constants.ScrobblerSyncFrequencyKey
 import com.metrolist.music.constants.ScrobblerTokenKey
 import com.metrolist.music.utils.dataStore
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -36,7 +44,20 @@ enum class ScrobblerSyncFrequency(
     OFF("off", "Off", -1L),
 }
 
+class ScrobblerSyncWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        ScrobblerSync.syncIfDue(applicationContext)
+        return Result.success()
+    }
+}
+
 object ScrobblerSync {
+    private const val WORK_NAME = "radiostar-scrobbler-sync"
+    private const val MIN_PERIODIC_INTERVAL_MS = 15 * 60_000L
+
     suspend fun syncIfDue(context: Context) =
         withContext(Dispatchers.IO) {
             val prefs = context.dataStore.data.first()
@@ -70,4 +91,40 @@ object ScrobblerSync {
                 RadioStarRefreshBus.request()
             }
         }
+
+    /**
+     * WorkManager is the only scheduler that keeps working after the process
+     * dies. Its shortest periodic interval is 15 minutes, which is exactly the
+     * shortest option exposed in Settings.
+     */
+    suspend fun reschedule(context: Context) {
+        val prefs = context.dataStore.data.first()
+        val service = prefs[ScrobblerServiceKey] ?: ScrobblerService.NONE.id
+        val frequencyId = prefs[ScrobblerSyncFrequencyKey] ?: ScrobblerSyncFrequency.SIX_HOURS.id
+        val frequency =
+            ScrobblerSyncFrequency.values().firstOrNull { it.id == frequencyId }
+                ?: ScrobblerSyncFrequency.SIX_HOURS
+        val manager = WorkManager.getInstance(context)
+        if (service == ScrobblerService.NONE.id ||
+            frequency == ScrobblerSyncFrequency.OFF ||
+            frequency == ScrobblerSyncFrequency.STARTUP
+        ) {
+            manager.cancelUniqueWork(WORK_NAME)
+            return
+        }
+        val interval = frequency.intervalMs.coerceAtLeast(MIN_PERIODIC_INTERVAL_MS)
+        val request =
+            PeriodicWorkRequestBuilder<ScrobblerSyncWorker>(interval, TimeUnit.MILLISECONDS)
+                .setConstraints(
+                    Constraints
+                        .Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                ).build()
+        manager.enqueueUniquePeriodicWork(
+            WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request,
+        )
+    }
 }

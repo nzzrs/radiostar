@@ -19,7 +19,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,8 +54,10 @@ import com.metrolist.music.recommend.RadioStarRefreshBus
 import com.metrolist.music.recommend.ScrobblerConfig
 import com.metrolist.music.recommend.ScrobblerImporter
 import com.metrolist.music.recommend.ScrobblerService
+import com.metrolist.music.recommend.ScrobblerSync
 import com.metrolist.music.recommend.ScrobblerSyncFrequency
 import com.metrolist.music.ui.component.IconButton
+import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
@@ -88,6 +89,7 @@ fun ListeningHistorySettings(navController: NavController) {
     var progressTotal by remember { mutableStateOf<Long?>(null) }
     var localCount by remember { mutableIntStateOf(0) }
     var showImportServiceDialog by remember { mutableStateOf(false) }
+    var showFrequencyDialog by remember { mutableStateOf(false) }
     var inputTarget by remember { mutableStateOf<String?>(null) }
     var inputDraft by remember { mutableStateOf("") }
 
@@ -97,8 +99,14 @@ fun ListeningHistorySettings(navController: NavController) {
     LaunchedEffect(importServiceId, lastChecked) {
         localCount =
             withContext(Dispatchers.IO) {
-                ListenStore(context).count()
+                ListenStore(context).count(importService.id)
             }
+    }
+
+    LaunchedEffect(importServiceId, syncFrequency) {
+        withContext(Dispatchers.IO) {
+            ScrobblerSync.reschedule(context)
+        }
     }
 
     Column(
@@ -114,13 +122,6 @@ fun ListeningHistorySettings(navController: NavController) {
             Modifier.windowInsetsPadding(
                 LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top),
             ),
-        )
-
-        Text(
-            text = stringResource(R.string.radiostar_import_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
 
         Material3SettingsGroup(
@@ -188,32 +189,6 @@ fun ListeningHistorySettings(navController: NavController) {
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.sync),
                                 title = { Text(stringResource(R.string.radiostar_scrobbler_import)) },
-                                description = {
-                                    Column {
-                                        Text(
-                                            importStatus.ifBlank {
-                                                stringResource(R.string.radiostar_scrobbler_never)
-                                            },
-                                        )
-                                        if (importing) {
-                                            Text("$progressFetched / ${progressTotal?.toString() ?: "?"}")
-                                            val total = progressTotal
-                                            if (total != null && total > 0) {
-                                                LinearProgressIndicator(
-                                                    progress = {
-                                                        (progressFetched.toFloat() / total.toFloat())
-                                                            .coerceIn(0f, 1f)
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                                )
-                                            } else {
-                                                LinearProgressIndicator(
-                                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                                )
-                                            }
-                                        }
-                                    }
-                                },
                                 onClick = {
                                     if (!importing) {
                                         importing = true
@@ -294,19 +269,40 @@ fun ListeningHistorySettings(navController: NavController) {
                                 icon = painterResource(R.drawable.sync),
                                 title = { Text(stringResource(R.string.radiostar_sync_frequency)) },
                                 description = { Text(currentFrequency.label) },
-                                onClick = {
-                                    val next =
-                                        ScrobblerSyncFrequency.values()[
-                                            (currentFrequency.ordinal + 1) %
-                                                ScrobblerSyncFrequency.values().size
-                                        ]
-                                    syncFrequency = next.id
-                                },
+                                onClick = { showFrequencyDialog = true },
                             ),
                         )
                     }
                 },
         )
+
+        if (importStatus.isNotBlank() || importing) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = importStatus.ifBlank { stringResource(R.string.radiostar_scrobbler_never) },
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (importing) {
+                    Text("$progressFetched / ${progressTotal?.toString() ?: "?"}")
+                    val total = progressTotal
+                    if (total != null && total > 0) {
+                        LinearProgressIndicator(
+                            progress = {
+                                (progressFetched.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
 
         Spacer(Modifier.height(16.dp))
     }
@@ -332,6 +328,22 @@ fun ListeningHistorySettings(navController: NavController) {
                 TextButton(onClick = { showImportServiceDialog = false }) {
                     Text(stringResource(android.R.string.cancel))
                 }
+            },
+        )
+    }
+
+    if (showFrequencyDialog) {
+        EnumDialog(
+            onDismiss = { showFrequencyDialog = false },
+            onSelect = {
+                syncFrequency = it
+                showFrequencyDialog = false
+            },
+            title = stringResource(R.string.radiostar_sync_frequency),
+            current = syncFrequency,
+            values = ScrobblerSyncFrequency.values().map { it.id },
+            valueText = { id ->
+                ScrobblerSyncFrequency.values().firstOrNull { it.id == id }?.label ?: id
             },
         )
     }

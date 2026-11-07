@@ -60,6 +60,12 @@ class ListenStore(context: Context) {
         }.getOrDefault(0)
     }
 
+    /** Counts only listens imported from one service. */
+    fun count(service: String): Int {
+        if (service.isBlank()) return count()
+        return load().count { it.service == service }
+    }
+
     fun append(records: List<ImportedListen>): Int {
         if (records.isEmpty()) return 0
         val existing = load().mapTo(HashSet()) { fingerprint(it) }

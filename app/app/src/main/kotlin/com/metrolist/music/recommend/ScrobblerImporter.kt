@@ -172,7 +172,7 @@ object ScrobblerImporter {
                     }
                     ScrobblerService.NONE -> Unit
                 }
-                val localTotal = store.count()
+                val localTotal = store.count(config.service.id)
                 if (complete) saveCheckpoint(context, config.service, maxSeen)
                 if (complete) {
                     // Imported history may already exist from an older build;

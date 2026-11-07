@@ -108,6 +108,7 @@ class App :
         }
         applicationScope.launch(Dispatchers.IO) {
             ScrobblerSync.syncIfDue(this@App)
+            ScrobblerSync.reschedule(this@App)
         }
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
