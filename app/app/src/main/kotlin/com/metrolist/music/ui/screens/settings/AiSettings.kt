@@ -594,6 +594,27 @@ fun AiSettings(navController: NavController) {
         )
 
         Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_dj),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.radio),
+                        title = { Text(stringResource(R.string.radiostar_dj)) },
+                        description = { Text(stringResource(R.string.radiostar_dj_desc)) },
+                        trailingContent = {
+                            androidx.compose.material3.Switch(
+                                checked = aiDjEnabled,
+                                onCheckedChange = { aiDjEnabled = it },
+                            )
+                        },
+                        onClick = { aiDjEnabled = !aiDjEnabled },
+                    ),
+                ),
+        )
+
+        Spacer(modifier = Modifier.height(27.dp))
+
+        Material3SettingsGroup(
             title = stringResource(R.string.ai_provider),
             items =
                 listOf(

@@ -289,6 +289,19 @@
 
     <string name="radiostar">RadioStar</string>
     <string name="radiostar_description">RadioStar convierte tu historial importado en playlists: Discover, Jam y Explore diarias y semanales, además de un AI DJ opcional. Nunca cambia lo que eliges reproducir.</string>
+    <string name="radiostar_engine">Recomendaciones</string>
+    <string name="radiostar_refresh_now">Actualizar playlists ahora</string>
+    <string name="radiostar_refresh_now_desc">Vuelve a crear Hecho para ti con los listens importados más recientes.</string>
+    <string name="radiostar_how_it_works">Hecho para ti usa primero los listens importados y después las reproducciones locales. Las listas diarias cambian a las 06:00 hora local; las semanales, una vez por semana ISO. Desliza hacia abajo en una playlist generada para reconstruir solo esa lista.</string>
+    <string name="radiostar_listening_history">Historial de escucha</string>
+    <string name="radiostar_listening_history_desc">Importa listens, revisa qué hay de nuevo y elige la frecuencia de sincronización.</string>
+    <string name="radiostar_scrobbling">Scrobbling</string>
+    <string name="radiostar_scrobbling_desc">Elige a dónde se envían los listens nuevos, o déjalo desactivado.</string>
+    <string name="radiostar_about_tagline">Recomendaciones privadas, construidas sobre Metrolist</string>
+    <string name="radiostar_about_blurb">RadioStar guarda el historial, las playlists generadas y la telemetría local en este teléfono. La voz del DJ y los enlaces con IA son las únicas funciones que pueden llamar a un servicio externo.</string>
+    <string name="radiostar_source">Código de RadioStar</string>
+    <string name="radiostar_upstream_note">RadioStar es un fork de Metrolist. La sección de abajo acredita y apoya a los desarrolladores originales; su trabajo hace posible esta app.</string>
+    <string name="radiostar_open_credits">Abrir créditos completos</string>
     <string name="radiostar_dj">AI DJ</string>
     <string name="radiostar_dj_desc">Activa las sesiones de DJ: la tarjeta, la vista hablada y los enlaces entre canciones. Si se desactiva, desaparece todo lo relacionado con el DJ.</string>
     <string name="radiostar_server">Servidor de embeddings</string>
@@ -301,7 +314,7 @@
     <string name="radiostar_history_help">Usa la exportación con Title, Artist, Album, YouTube Video ID. Descubrir y Explorar omitirán esas pistas.</string>
     <string name="radiostar_history_failed">No se pudo leer ese archivo</string>
     <string name="radiostar_save">Guardar</string>
-    <string name="radiostar_playlists">Playlists de RadioStar</string>
+    <string name="radiostar_playlists">Hecho para ti</string>
     <string name="radiostar_playlists_empty">Importa listens o escucha algo de música y RadioStar creará tus playlists diarias y semanales Discover, Jam y Explore.</string>
     <string name="radiostar_daily">Diaria</string>
     <string name="radiostar_weekly">Semanal</string>

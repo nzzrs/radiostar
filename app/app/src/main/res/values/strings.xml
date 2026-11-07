@@ -345,6 +345,19 @@
     <string name="clear_translation_models">Clear translation models</string>
 
     <string name="radiostar">RadioStar</string>
+    <string name="radiostar_engine">Recommendations</string>
+    <string name="radiostar_refresh_now">Refresh playlists now</string>
+    <string name="radiostar_refresh_now_desc">Rebuild Made for you with the newest imported listens.</string>
+    <string name="radiostar_how_it_works">Made for you is built from imported listens first, local plays second. Daily lists roll over at 06:00 local time; weekly lists once per ISO week. Pull down on a generated playlist to rebuild that one list.</string>
+    <string name="radiostar_listening_history">Listening history</string>
+    <string name="radiostar_listening_history_desc">Import listens, check what is new and choose the sync frequency.</string>
+    <string name="radiostar_scrobbling">Scrobbling</string>
+    <string name="radiostar_scrobbling_desc">Choose where new listens are sent, or leave it off.</string>
+    <string name="radiostar_about_tagline">Private music recommendations, built on Metrolist</string>
+    <string name="radiostar_about_blurb">RadioStar keeps listening history, generated playlists and local telemetry on this phone. The optional DJ voice and AI links are the only features that can call an external service.</string>
+    <string name="radiostar_source">RadioStar source</string>
+    <string name="radiostar_upstream_note">RadioStar is a fork of Metrolist. The section below credits and supports the upstream developers; their work makes this app possible.</string>
+    <string name="radiostar_open_credits">Open full credits</string>
     <string name="radiostar_description">RadioStar turns your imported listening history into playlists: daily and weekly Discover, Jam and Explore, plus an optional AI DJ. It never changes what you choose to play.</string>
     <string name="radiostar_dj">AI DJ</string>
     <string name="radiostar_dj_desc">Enables DJ sessions: the card, the speaking view and spoken links between tracks. When off, every DJ feature is removed.</string>
@@ -358,7 +371,7 @@
     <string name="radiostar_history_help">Uses the export with Title, Artist, Album, YouTube Video ID. Discover and Explore will skip these tracks.</string>
     <string name="radiostar_history_failed">Could not read that file</string>
     <string name="radiostar_save">Save</string>
-    <string name="radiostar_playlists">RadioStar playlists</string>
+    <string name="radiostar_playlists">Made for you</string>
     <string name="radiostar_playlists_empty">Import listens or play some music and RadioStar will build your daily and weekly Discover, Jam and Explore playlists.</string>
     <string name="radiostar_daily">Daily</string>
     <string name="radiostar_weekly">Weekly</string>

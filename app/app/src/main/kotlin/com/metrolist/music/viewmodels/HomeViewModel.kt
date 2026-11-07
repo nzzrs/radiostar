@@ -42,7 +42,6 @@ import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.models.SimilarRecommendation
 import com.metrolist.music.recommend.DjConfig
-import com.metrolist.music.recommend.RadioStarRefreshBus
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.ui.screens.wrapped.WrappedAudioService
 import com.metrolist.music.ui.screens.wrapped.WrappedManager
@@ -711,6 +710,10 @@ class HomeViewModel @Inject constructor(
             } else {
                 load()
             }
+            // Pulling Home also asks for a fresh set of generated playlists.
+            // The repository keeps the stamps and skips this when the server
+            // is unreachable, so the spinner still finishes quickly.
+            radioStarRepository.refreshIfDue(force = true)
             isRefreshing.value = false
         }
         // Run sync when user manually refreshes
@@ -729,11 +732,6 @@ class HomeViewModel @Inject constructor(
         // touches the playback queue; it only writes local playlists.
         viewModelScope.launch(Dispatchers.IO) {
             radioStarRepository.refreshIfDue()
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            RadioStarRefreshBus.requests.collect {
-                radioStarRepository.refreshIfDue(force = true)
-            }
         }
 
         // Run sync in separate coroutine with cooldown to avoid blocking UI

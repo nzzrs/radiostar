@@ -109,7 +109,7 @@ fun SettingsScreen(
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.radio),
-                    title = { Text(stringResource(R.string.radiostar)) },
+                    title = { Text(stringResource(R.string.radiostar_engine)) },
                     description = { Text(stringResource(R.string.radiostar_description)) },
                     onClick = { navController.navigate("settings/radiostar") }
                 )
@@ -142,6 +142,12 @@ fun SettingsScreen(
                     icon = painterResource(R.drawable.security),
                     title = { Text(stringResource(R.string.privacy)) },
                     onClick = { navController.navigate("settings/privacy") }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.radio),
+                    title = { Text(stringResource(R.string.radiostar_scrobbling)) },
+                    description = { Text(stringResource(R.string.radiostar_scrobbling_desc)) },
+                    onClick = { navController.navigate("settings/scrobbling") }
                 )
             )
         )
@@ -161,6 +167,12 @@ fun SettingsScreen(
                     icon = painterResource(R.drawable.restore),
                     title = { Text(stringResource(R.string.backup_restore)) },
                     onClick = { navController.navigate("settings/backup_restore") }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.history),
+                    title = { Text(stringResource(R.string.radiostar_listening_history)) },
+                    description = { Text(stringResource(R.string.radiostar_listening_history_desc)) },
+                    onClick = { navController.navigate("settings/listening_history") }
                 )
             )
         )
