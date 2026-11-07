@@ -33,6 +33,8 @@ class DjAnnouncer(
     private var wakeLock: PowerManager.WakeLock? = null
     private var currentUtterance: String? = null
     private var ducked = false
+    private var pitch = 0.95f
+    private var rate = 0.98f
 
     @Volatile
     private var ready = false
@@ -57,8 +59,8 @@ class DjAnnouncer(
         ) {
             engine.setLanguage(Locale.US)
         }
-        engine.setSpeechRate(0.98f)
-        engine.setPitch(0.95f)
+        engine.setSpeechRate(rate)
+        engine.setPitch(pitch)
         engine.setAudioAttributes(
             AudioAttributes
                 .Builder()
@@ -89,6 +91,15 @@ class DjAnnouncer(
             },
         )
         ready = true
+    }
+
+    fun setVoice(pitch: Float, rate: Float) {
+        this.pitch = pitch.coerceIn(0.5f, 1.5f)
+        this.rate = rate.coerceIn(0.5f, 1.5f)
+        if (ready) {
+            tts?.setPitch(this.pitch)
+            tts?.setSpeechRate(this.rate)
+        }
     }
 
     fun announce(text: String, utteranceId: String): Boolean {

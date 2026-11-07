@@ -41,6 +41,7 @@ import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.models.SimilarRecommendation
+import com.metrolist.music.recommend.DjConfig
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.ui.screens.wrapped.WrappedAudioService
 import com.metrolist.music.ui.screens.wrapped.WrappedManager
@@ -100,6 +101,8 @@ class HomeViewModel @Inject constructor(
     private val radioStarRepository: RadioStarPlaylistRepository,
 ) : ViewModel() {
     val radioStarCards = radioStarRepository.cards
+
+    suspend fun buildDjQueue(config: DjConfig) = radioStarRepository.buildDjQueue(config)
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
     val isRandomizing = MutableStateFlow(false)

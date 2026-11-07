@@ -139,14 +139,24 @@ class RadioStarPlaylistRepository
             server: String,
         ) {
             val history = history(days, limit = if (days <= 7) 40 else 80)
-            if (history.isEmpty()) {
-                Timber.tag(TAG).i("no listening history for %d-day playlists", days)
+            val cutoff = LocalDateTime.now().minusDays(days).toEpochSecond(java.time.ZoneOffset.UTC)
+            val imported =
+                ListenStore(context)
+                    .load()
+                    .filter { it.listenedAt >= cutoff }
+                    .distinctBy { "${it.artist.lowercase()}|${it.title.lowercase()}" }
+                    .sortedByDescending { it.listenedAt }
+                    .take(120)
+
+            val anchorIds =
+                history.take(anchors).map { it.song.id }.ifEmpty {
+                    resolveImportedAnchors(imported.take(anchors)).map { it.id }
+                }
+            if (anchorIds.isEmpty()) {
+                Timber.tag(TAG).i("no anchors for %d-day playlists", days)
                 return
             }
-            val heard = history(365, limit = 500)
-            val anchorSongs = history.take(anchors)
-            val radio = radioItems(anchorSongs, perAnchor)
-
+            val radio = radioItems(anchorIds, perAnchor)
             val historyPool = history.mapNotNull { it.toPoolSong() }
             val allPool =
                 (radio.mapNotNull { it.toPoolSong() } + historyPool)
@@ -158,20 +168,23 @@ class RadioStarPlaylistRepository
                 return
             }
 
+            val importedItems = imported.map { EmbeddingClient.Item(it.artist, it.title) }
             val vectors =
                 EmbeddingClient.embed(
                     server,
-                    allPool.map { EmbeddingClient.Item(it.artistText, it.title) },
+                    allPool.map { EmbeddingClient.Item(it.artistText, it.title) } + importedItems,
                 ) ?: run {
                     Timber.tag(TAG).w("embedding failed for %d pool items", allPool.size)
                     return
                 }
-            val byId = allPool.zip(vectors).associate { (song, vector) -> song.id to vector }
-            val historyVectors = historyPool.mapNotNull { byId[it.id] }
+            val byId = allPool.zip(vectors.take(allPool.size)).associate { (song, vector) -> song.id to vector }
+            val externalVectors = vectors.drop(allPool.size)
+            val historyVectors = historyPool.mapNotNull { byId[it.id] } + externalVectors
             val centroid = centroid(historyVectors) ?: return
 
             val profiles = loadProfiles()
-            val referenceId = anchorSongs.firstOrNull()?.song?.id
+            val referenceId = anchorIds.firstOrNull()
+            val heard = history(365, limit = 500)
             val heardIds = heard.mapTo(HashSet()) { it.song.id }
             val heardKeys =
                 heard.mapTo(HashSet()) { song ->
@@ -180,6 +193,7 @@ class RadioStarPlaylistRepository
                         song.artists.firstOrNull()?.name.orEmpty(),
                     )
                 }
+            imported.forEach { heardKeys.add(ListenHistory.key(it.title, it.artist)) }
             val radioIds = radio.mapNotNull { it.id }.toSet()
 
             for (spec in specs) {
@@ -222,6 +236,55 @@ class RadioStarPlaylistRepository
                 )
             }
         }
+
+        private suspend fun resolveImportedAnchors(listens: List<ImportedListen>): List<SongItem> {
+            val result = ArrayList<SongItem>()
+            for (listen in listens) {
+                if (result.size >= 5) break
+                val query = "${listen.artist} ${listen.title}"
+                val found =
+                    runCatching {
+                        YouTube.search(query, YouTube.SearchFilter.FILTER_SONG)
+                            .getOrNull()
+                            ?.items
+                            ?.filterIsInstance<SongItem>()
+                            ?.firstOrNull()
+                    }.getOrNull()
+                if (found != null && result.none { it.id == found.id }) result.add(found)
+            }
+            return result
+        }
+
+        /**
+         * Builds an on-demand DJ set from the generated playlists.
+         * Familiar = Jam, likely = Discover, far = Explore.
+         */
+        suspend fun buildDjQueue(config: DjConfig): List<Song> {
+            val jam = playlistSongs("LP_RS_DAILY_JAMS") + playlistSongs("LP_RS_WEEKLY_JAMS")
+            val likely = playlistSongs("LP_RS_DAILY_DISCOVER") + playlistSongs("LP_RS_WEEKLY_DISCOVER")
+            val far = playlistSongs("LP_RS_DAILY_EXPLORE") + playlistSongs("LP_RS_WEEKLY_EXPLORE")
+            val result = ArrayList<Song>()
+            val seen = HashSet<String>()
+            fun add(bucket: List<Song>, presence: DjPresence) {
+                if (presence == DjPresence.NEVER) return
+                val count = if (presence == DjPresence.FREQUENT) 8 else 3
+                val target = result.size + count
+                for (song in bucket.shuffled()) {
+                    if (result.size >= target || result.size >= 20) break
+                    if (seen.add(song.song.id)) result.add(song)
+                }
+            }
+            add(jam, config.known)
+            add(likely, config.likely)
+            add(far, config.far)
+            (likely + jam + far).shuffled().forEach { song ->
+                if (result.size < 20 && seen.add(song.song.id)) result.add(song)
+            }
+            return result
+        }
+
+        private suspend fun playlistSongs(id: String): List<Song> =
+            database.playlistSongs(id).first().map { it.song }
 
         /**
          * Reorders only tracks the phone has already analysed. Unknown
@@ -342,14 +405,14 @@ class RadioStarPlaylistRepository
         }
 
         private suspend fun radioItems(
-            anchors: List<Song>,
+            anchorIds: List<String>,
             perAnchor: Int,
         ): List<SongItem> {
             val merged = LinkedHashMap<String, SongItem>()
-            for (anchor in anchors) {
+            for (anchorId in anchorIds) {
                 val result =
                     runCatching {
-                        YouTube.next(WatchEndpoint(videoId = anchor.song.id)).getOrNull()
+                        YouTube.next(WatchEndpoint(videoId = anchorId)).getOrNull()
                     }.getOrNull() ?: continue
                 result.items
                     .asSequence()

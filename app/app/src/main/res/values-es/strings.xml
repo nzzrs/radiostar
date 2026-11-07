@@ -308,4 +308,24 @@
     <string name="radiostar_special">Especial</string>
     <string name="radiostar_track_count">%1$d pistas</string>
     <string name="radiostar_open_playlist">Abrir playlist</string>
+    <string name="radiostar_scrobbler">Importar scrobbles</string>
+    <string name="radiostar_scrobbler_service">Servicio</string>
+    <string name="radiostar_scrobbler_user">Usuario</string>
+    <string name="radiostar_scrobbler_url">URL del servidor</string>
+    <string name="radiostar_scrobbler_token">Token</string>
+    <string name="radiostar_scrobbler_import">Importar listens</string>
+    <string name="radiostar_scrobbler_never">Nunca importado</string>
+    <string name="radiostar_scrobbler_importing">Importando…</string>
+    <string name="radiostar_dj_play">Deja que el DJ ponga el ritmo</string>
+    <string name="radiostar_dj_known">Canciones conocidas</string>
+    <string name="radiostar_dj_far">Lejos de tus gustos</string>
+    <string name="radiostar_dj_likely">Parecidas a tus gustos</string>
+    <string name="radiostar_dj_personality">Personalidad</string>
+    <string name="radiostar_dj_start">Iniciar DJ</string>
+    <string name="radiostar_dj_never">Nunca</string>
+    <string name="radiostar_dj_sometimes">A veces</string>
+    <string name="radiostar_dj_frequently">Frecuente</string>
+    <string name="radiostar_credits">Créditos y licencias</string>
+    <string name="radiostar_credits_text">RadioStar se apoya en Metrolist (GPL-3.0), LAION CLAP (Apache-2.0), ONNX Runtime (MIT), Media3 (Apache-2.0) y el trabajo de DPP greedy de Chen et al. Los créditos de modelos y datos están en el README y docs/decisions.md.</string>
+    <string name="radiostar_scrobbler_api_key">Clave API de Last.fm</string>
 </resources>

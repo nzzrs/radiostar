@@ -44,7 +44,16 @@ import com.metrolist.music.R
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarHistoryKey
 import com.metrolist.music.constants.RadioStarServerKey
+import com.metrolist.music.constants.ScrobblerApiKeyKey
+import com.metrolist.music.constants.ScrobblerBaseUrlKey
+import com.metrolist.music.constants.ScrobblerLastFmUserKey
+import com.metrolist.music.constants.ScrobblerListenBrainzUserKey
+import com.metrolist.music.constants.ScrobblerServiceKey
+import com.metrolist.music.constants.ScrobblerTokenKey
 import com.metrolist.music.recommend.ListenHistory
+import com.metrolist.music.recommend.ScrobblerConfig
+import com.metrolist.music.recommend.ScrobblerImporter
+import com.metrolist.music.recommend.ScrobblerService
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
@@ -77,10 +86,22 @@ fun RadioStarScreen(navController: NavController) {
     var dj by rememberPreference(RadioStarDjKey, globalDj)
     var server by rememberPreference(RadioStarServerKey, globalServer)
     var history by rememberPreference(RadioStarHistoryKey, emptySet<String>())
+    var scrobblerService by rememberPreference(ScrobblerServiceKey, ScrobblerService.NONE.id)
+    var lastFmUser by rememberPreference(ScrobblerLastFmUserKey, "")
+    var listenBrainzUser by rememberPreference(ScrobblerListenBrainzUserKey, "")
+    var baseUrl by rememberPreference(ScrobblerBaseUrlKey, "")
+    var token by rememberPreference(ScrobblerTokenKey, "")
+    var apiKey by rememberPreference(ScrobblerApiKeyKey, "")
+    var importStatus by remember { mutableStateOf("") }
+    var showCredits by remember { mutableStateOf(false) }
 
     var showServerDialog by remember { mutableStateOf(false) }
     var serverDraft by remember { mutableStateOf("") }
+    var inputTarget by remember { mutableStateOf<String?>(null) }
+    var inputDraft by remember { mutableStateOf("") }
     var importFailed by remember { mutableStateOf(false) }
+    val service =
+        ScrobblerService.values().firstOrNull { it.id == scrobblerService } ?: ScrobblerService.NONE
 
     val importer =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -142,6 +163,11 @@ fun RadioStarScreen(navController: NavController) {
                         onClick = { dj = !dj },
                     ),
                     Material3SettingsItem(
+                        icon = painterResource(R.drawable.info),
+                        title = { Text(stringResource(R.string.radiostar_credits)) },
+                        onClick = { showCredits = true },
+                    ),
+                    Material3SettingsItem(
                         icon = painterResource(R.drawable.radio),
                         title = { Text(stringResource(R.string.radiostar_server)) },
                         description = {
@@ -150,6 +176,91 @@ fun RadioStarScreen(navController: NavController) {
                         onClick = {
                             serverDraft = server
                             showServerDialog = true
+                        },
+                    ),
+                ),
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        val serviceUser = if (service == ScrobblerService.LASTFM) lastFmUser else listenBrainzUser
+        Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_scrobbler),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.radio),
+                        title = { Text(stringResource(R.string.radiostar_scrobbler_service)) },
+                        description = { Text(service.label) },
+                        onClick = {
+                            scrobblerService =
+                                ScrobblerService.values()[(service.ordinal + 1) % ScrobblerService.values().size].id
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.person),
+                        title = { Text(stringResource(R.string.radiostar_scrobbler_user)) },
+                        description = { Text(serviceUser.ifBlank { "—" }) },
+                        enabled = service != ScrobblerService.NONE,
+                        onClick = {
+                            inputTarget = "user"
+                            inputDraft = serviceUser
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.cloud),
+                        title = { Text(stringResource(R.string.radiostar_scrobbler_url)) },
+                        description = { Text(baseUrl.ifBlank { "—" }) },
+                        enabled = service == ScrobblerService.SELF_HOSTED,
+                        onClick = {
+                            inputTarget = "url"
+                            inputDraft = baseUrl
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.lock),
+                        title = { Text(stringResource(R.string.radiostar_scrobbler_api_key)) },
+                        description = { Text(if (apiKey.isBlank()) "—" else "••••••") },
+                        enabled = service == ScrobblerService.LASTFM,
+                        onClick = {
+                            inputTarget = "apikey"
+                            inputDraft = apiKey
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.lock),
+                        title = { Text(stringResource(R.string.radiostar_scrobbler_token)) },
+                        description = { Text(if (token.isBlank()) "—" else "••••••") },
+                        enabled = service != ScrobblerService.NONE && service != ScrobblerService.LASTFM,
+                        onClick = {
+                            inputTarget = "token"
+                            inputDraft = token
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.sync),
+                        title = { Text(stringResource(R.string.radiostar_scrobbler_import)) },
+                        description = {
+                            Text(importStatus.ifBlank { stringResource(R.string.radiostar_scrobbler_never) })
+                        },
+                        enabled = service != ScrobblerService.NONE,
+                        onClick = {
+                            importStatus = context.getString(R.string.radiostar_scrobbler_importing)
+                            scope.launch {
+                                val result =
+                                    ScrobblerImporter.import(
+                                        context,
+                                        ScrobblerConfig(
+                                            service = service,
+                                            lastFmUser = lastFmUser,
+                                            listenBrainzUser = listenBrainzUser,
+                                            baseUrl = baseUrl,
+                                            token = token,
+                                            apiKey = apiKey,
+                                        ),
+                                    )
+                                importStatus = result.message
+                            }
                         },
                     ),
                 ),
@@ -187,6 +298,67 @@ fun RadioStarScreen(navController: NavController) {
         )
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+
+    if (showCredits) {
+        AlertDialog(
+            onDismissRequest = { showCredits = false },
+            title = { Text(stringResource(R.string.radiostar_credits)) },
+            text = { Text(stringResource(R.string.radiostar_credits_text)) },
+            confirmButton = {
+                TextButton(onClick = { showCredits = false }) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+        )
+    }
+
+    if (inputTarget != null) {
+        AlertDialog(
+            onDismissRequest = { inputTarget = null },
+            title = {
+                Text(
+                    when (inputTarget) {
+                        "user" -> stringResource(R.string.radiostar_scrobbler_user)
+                        "url" -> stringResource(R.string.radiostar_scrobbler_url)
+                        "apikey" -> stringResource(R.string.radiostar_scrobbler_api_key)
+                        else -> stringResource(R.string.radiostar_scrobbler_token)
+                    },
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = inputDraft,
+                    onValueChange = { inputDraft = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        when (inputTarget) {
+                            "user" -> {
+                                if (service == ScrobblerService.LASTFM) {
+                                    lastFmUser = inputDraft.trim()
+                                } else {
+                                    listenBrainzUser = inputDraft.trim()
+                                }
+                            }
+                            "url" -> baseUrl = inputDraft.trim().trimEnd('/')
+                            "token" -> token = inputDraft.trim()
+                        "apikey" -> apiKey = inputDraft.trim()
+                        }
+                        inputTarget = null
+                    },
+                ) { Text(stringResource(R.string.radiostar_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { inputTarget = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
     }
 
     if (showServerDialog) {
