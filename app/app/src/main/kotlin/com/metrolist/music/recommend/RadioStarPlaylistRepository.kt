@@ -25,7 +25,6 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.utils.dataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.time.LocalDate
 import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -91,7 +90,7 @@ class RadioStarPlaylistRepository
          */
         suspend fun refreshIfDue(force: Boolean = false) {
             mutex.withLock {
-                val today = LocalDate.now()
+                val today = PlaylistSchedule.scheduleDate(LocalDateTime.now())
                 val prefs = context.dataStore.data.first()
                 val plan =
                     PlaylistSchedule.plan(
@@ -138,28 +137,43 @@ class RadioStarPlaylistRepository
             perAnchor: Int,
             server: String,
         ) {
-            val history = history(days, limit = if (days <= 7) 40 else 80)
-            val cutoff = LocalDateTime.now().minusDays(days).toEpochSecond(java.time.ZoneOffset.UTC)
-            val imported =
-                ListenStore(context)
-                    .load()
+            val cutoff = System.currentTimeMillis() / 1000L - days * 86_400L
+            val allImported = ListenStore(context).load()
+            val recentImported =
+                allImported
                     .filter { it.listenedAt >= cutoff }
                     .distinctBy { "${it.artist.lowercase()}|${it.title.lowercase()}" }
                     .sortedByDescending { it.listenedAt }
                     .take(120)
+            // If the window is empty, keep using imported history rather than
+            // falling back to Metrolist's local event table.
+            val imported =
+                if (recentImported.isNotEmpty()) {
+                    recentImported
+                } else {
+                    allImported
+                        .distinctBy { "${it.artist.lowercase()}|${it.title.lowercase()}" }
+                        .sortedByDescending { it.listenedAt }
+                        .take(120)
+                }
+            val anchorCutoff = if (recentImported.isNotEmpty()) cutoff else 0L
 
-            // Local events and imported listens both seed the radio. Without
-            // this, a fresh install that only imported history would build
-            // playlists from an empty local event table.
-            val localAnchors = history.take(anchors).map { it.song.id }
-            val importedAnchors =
+            // Imported history is the primary signal. Local event rows are only
+            // the fallback for users who have not imported anything yet.
+            val importedAnchorIds =
                 if (imported.isNotEmpty()) {
-                    resolveImportedAnchors(imported.take(maxOf(2, anchors / 2)))
+                    ImportedMostSongs.resolve(context, database, anchorCutoff, anchors)
+                } else {
+                    emptyList()
+                }
+            val localHistory =
+                if (importedAnchorIds.isEmpty()) {
+                    history(days, limit = if (days <= 7) 40 else 80)
                 } else {
                     emptyList()
                 }
             val anchorIds =
-                (localAnchors + importedAnchors.map { it.id })
+                (importedAnchorIds + localHistory.take(anchors).map { it.song.id })
                     .distinct()
                     .take(anchors + 2)
             if (anchorIds.isEmpty()) {
@@ -167,9 +181,13 @@ class RadioStarPlaylistRepository
                 return
             }
             val radio = radioItems(anchorIds, perAnchor)
-            val historyPool = history.mapNotNull { it.toPoolSong() }
+            val importedPool =
+                importedAnchorIds.mapNotNull { id ->
+                    database.song(id).first()?.toPoolSong()
+                }
+            val historyPool = localHistory.mapNotNull { it.toPoolSong() }
             val allPool =
-                (radio.mapNotNull { it.toPoolSong() } + historyPool)
+                (importedPool + radio.mapNotNull { it.toPoolSong() } + historyPool)
                     .distinctBy { it.id }
                     .filter { it.title.isNotBlank() && it.artists.any { artist -> artist.isNotBlank() } }
                     .take(160)
@@ -189,7 +207,10 @@ class RadioStarPlaylistRepository
                 }
             val byId = allPool.zip(vectors.take(allPool.size)).associate { (song, vector) -> song.id to vector }
             val externalVectors = vectors.drop(allPool.size)
-            val historyVectors = historyPool.mapNotNull { byId[it.id] } + externalVectors
+            val historyVectors =
+                importedPool.mapNotNull { byId[it.id] } +
+                    externalVectors +
+                    historyPool.mapNotNull { byId[it.id] }
             val centroid = centroid(historyVectors) ?: return
 
             val profiles = loadProfiles()
@@ -203,7 +224,7 @@ class RadioStarPlaylistRepository
                         song.artists.firstOrNull()?.name.orEmpty(),
                     )
                 }
-            imported.forEach { heardKeys.add(ListenHistory.key(it.title, it.artist)) }
+            allImported.forEach { heardKeys.add(ListenHistory.key(it.title, it.artist)) }
             val radioIds = radio.mapNotNull { it.id }.toSet()
 
             for (spec in specs) {
@@ -245,24 +266,6 @@ class RadioStarPlaylistRepository
                     slate.size,
                 )
             }
-        }
-
-        private suspend fun resolveImportedAnchors(listens: List<ImportedListen>): List<SongItem> {
-            val result = ArrayList<SongItem>()
-            for (listen in listens) {
-                if (result.size >= 5) break
-                val query = "${listen.artist} ${listen.title}"
-                val found =
-                    runCatching {
-                        YouTube.search(query, YouTube.SearchFilter.FILTER_SONG)
-                            .getOrNull()
-                            ?.items
-                            ?.filterIsInstance<SongItem>()
-                            ?.firstOrNull()
-                    }.getOrNull()
-                if (found != null && result.none { it.id == found.id }) result.add(found)
-            }
-            return result
         }
 
         /**

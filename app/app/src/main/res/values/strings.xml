@@ -345,9 +345,9 @@
     <string name="clear_translation_models">Clear translation models</string>
 
     <string name="radiostar">RadioStar</string>
-    <string name="radiostar_description">RadioStar turns your listening history into playlists: daily and weekly Discover, Jam and Explore, plus the special DJ Cherry. It never changes what you choose to play.</string>
-    <string name="radiostar_dj">DJ voice</string>
-    <string name="radiostar_dj_desc">Announces the next track a few seconds before it starts and ducks the music while speaking.</string>
+    <string name="radiostar_description">RadioStar turns your imported listening history into playlists: daily and weekly Discover, Jam and Explore, plus an optional AI DJ. It never changes what you choose to play.</string>
+    <string name="radiostar_dj">AI DJ</string>
+    <string name="radiostar_dj_desc">Enables DJ sessions: the card, the speaking view and spoken links between tracks. When off, every DJ feature is removed.</string>
     <string name="radiostar_server">Embedding server</string>
     <string name="radiostar_server_empty">Not set</string>
     <string name="radiostar_server_hint">http://192.168.1.10:8787</string>
@@ -359,7 +359,7 @@
     <string name="radiostar_history_failed">Could not read that file</string>
     <string name="radiostar_save">Save</string>
     <string name="radiostar_playlists">RadioStar playlists</string>
-    <string name="radiostar_playlists_empty">Listen to some music and RadioStar will build your daily, weekly and DJ Cherry playlists.</string>
+    <string name="radiostar_playlists_empty">Import listens or play some music and RadioStar will build your daily and weekly Discover, Jam and Explore playlists.</string>
     <string name="radiostar_daily">Daily</string>
     <string name="radiostar_weekly">Weekly</string>
     <string name="radiostar_special">Special</string>
@@ -373,7 +373,7 @@
     <string name="radiostar_scrobbler_import">Import listens</string>
     <string name="radiostar_scrobbler_never">Never imported</string>
     <string name="radiostar_scrobbler_importing">Importing…</string>
-    <string name="radiostar_dj_play">Let the DJ play the beat</string>
+    <string name="radiostar_dj_play">Start a new session</string>
     <string name="radiostar_dj_known">Familiar tracks</string>
     <string name="radiostar_dj_far">Far from your taste</string>
     <string name="radiostar_dj_likely">Like your taste</string>
@@ -408,4 +408,8 @@
     <string name="radiostar_dj_ai">DJ commentary</string>
     <string name="radiostar_dj_ai_key">API key for DJ commentary</string>
     <string name="radiostar_dj_ai_key_help">Stored encrypted with the Android Keystore. Used only for spoken links between tracks.</string>
+    <string name="radiostar_local_listens">Listens on this phone</string>
+    <string name="radiostar_service_listens">Listens on the service</string>
+    <string name="radiostar_last_checked">Last checked</string>
+    <string name="radiostar_import_hint">Incremental sync checks the newest page and stops at the saved checkpoint. If the phone has fewer listens than the service, it repairs the full history from zero.</string>
 </resources>

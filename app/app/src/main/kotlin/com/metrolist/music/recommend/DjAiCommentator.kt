@@ -20,13 +20,16 @@ import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 
 /**
- * Optional LLM link between tracks. The DJ only speaks the generated text if
- * the user configured an OpenAI-compatible endpoint; otherwise the caller
- * falls back to the template announcement.
+ * Optional LLM link between tracks and session introductions.
+ *
+ * The DJ only speaks generated text when the user configured an
+ * OpenAI-compatible endpoint; otherwise the caller falls back to the
+ * track-specific template.
  */
 object DjAiCommentator {
     suspend fun comment(
@@ -35,6 +38,42 @@ object DjAiCommentator {
         previous: String?,
         nextTitle: String,
         nextArtist: String,
+    ): String? {
+        val prompt =
+            buildString {
+                append("You are ${persona.displayName}, a radio DJ with this personality: ")
+                append(persona.tagline)
+                append(". Write one short spoken link, at most 25 words, ")
+                append("in the language of the listener, no markdown or quotes. ")
+                if (!previous.isNullOrBlank()) append("Previous track: $previous. ")
+                append("Next: $nextTitle by $nextArtist.")
+            }
+        return request(context, prompt, "Say the link.")
+    }
+
+    suspend fun intro(
+        context: Context,
+        persona: DjPersona,
+        firstTitle: String,
+        firstArtist: String,
+    ): String? {
+        val prompt =
+            buildString {
+                append("You are ${persona.displayName}, a radio DJ with this personality: ")
+                append(persona.tagline)
+                append(". Open a listening session in at most 30 words. ")
+                append("Mention the first track: $firstTitle by $firstArtist. ")
+                append("Sound like yourself, not like a generic announcer. ")
+                append("Do not say 'let the beat play'. ")
+                append("Use the language of the listener, no markdown or quotes.")
+            }
+        return request(context, prompt, "Open the session.")
+    }
+
+    private suspend fun request(
+        context: Context,
+        prompt: String,
+        userTurn: String,
     ): String? =
         withContext(Dispatchers.IO) {
             val prefs = context.dataStore.data.first()
@@ -50,24 +89,15 @@ object DjAiCommentator {
                 prefs[RadioStarDjModelKey]?.trim()?.takeIf { it.isNotEmpty() }
                     ?: RADIOSTAR_DEFAULT_DJ_MODEL
             val provider = prefs[RadioStarDjProviderKey] ?: RADIOSTAR_DEFAULT_DJ_PROVIDER
-            val prompt =
-                buildString {
-                    append("You are ${persona.displayName}, a radio DJ with this personality: ")
-                    append(persona.tagline)
-                    append(". Write one short spoken link, at most 25 words, ")
-                    append("in the language of the listener, no markdown or quotes. ")
-                    if (!previous.isNullOrBlank()) append("Previous track: $previous. ")
-                    append("Next: $nextTitle by $nextArtist.")
-                }
             val payload =
                 JSONObject().apply {
                     put("model", model)
                     put("temperature", 0.8)
                     put(
                         "messages",
-                        org.json.JSONArray().apply {
+                        JSONArray().apply {
                             put(JSONObject().put("role", "system").put("content", prompt))
-                            put(JSONObject().put("role", "user").put("content", "Say the link."))
+                            put(JSONObject().put("role", "user").put("content", userTurn))
                         },
                     )
                 }
@@ -84,7 +114,7 @@ object DjAiCommentator {
                 if (connection.responseCode !in 200..299) return@runCatching null
                 val body = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 body.getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content")
-            }.onFailure { Timber.tag("RadioStarDjAi").w(it, "comment failed via $provider") }
+            }.onFailure { Timber.tag("RadioStarDjAi").w(it, "request failed via $provider") }
                 .getOrNull()
                 ?.takeIf { it.isNotBlank() }
         }

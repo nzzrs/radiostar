@@ -240,7 +240,12 @@ Properties:
 
 ### 6.2 Playlist generation details
 
-- History windows: 7 days daily, 30 days weekly; all-time fallback.
+- The playlist day rolls over at **06:00 local time** (not midnight). A
+  background check every 10 minutes catches an app left open overnight.
+- History windows: 7 days daily, 30 days weekly. Imported listens are the
+  primary source; local event rows are only the fallback when no imported
+  history exists. If the window is empty, the newest imported listens are used
+  rather than Metrolist's local table.
 - Discover/Explore: exclude all heard ids and normalised keys.
 - Jam: familiar tracks plus radio neighbours.
 - DPP with artist caps; generated songs/artists are inserted into Room so the
@@ -276,9 +281,12 @@ listen count; the progress bar and the `fetched / total` label use that number.
 A run that ends short is marked incomplete, keeps its checkpoint and retries;
 if the local per-service count is below the service total, the importer
 rebuilds from zero (repairing old capped runs). Incremental runs read from the
-newest page and stop at the saved timestamp. The last result is persisted. The
-sync frequency is startup, 15 min, 1 h, 6 h, daily, weekly or off. A completed
-import requests an immediate playlist refresh.
+newest page and stop at the saved timestamp, so `checked 100 newest of 11,333`
+means the first page was newer than the checkpoint, not that the service was
+only partially read. Settings shows the local listen count, the last service
+total, the last check time and a short explanation. The last result is
+persisted. The sync frequency is startup, 15 min, 1 h, 6 h, daily, weekly or
+off. A completed import requests an immediate playlist refresh.
 
 Resilience rules:
 
@@ -346,9 +354,21 @@ Panel controls:
   stop for accessibility.
 - Personas: 🍒 Cherry (default), 🍋 Lemon, 🫐 Berry, 🍌 Banana, 🍓 Strawberry,
   🥥 Coco. Each has a short personality, TTS pitch/rate and wording.
-- The card starts the session; the gear opens settings. Save persists the
-  wheel/persona and restarts the session. The AI provider (OpenRouter, OpenAI,
+- The card starts a **new** session every time; leaving the app and returning
+  does not resume the old one. The gear opens settings. Save persists the
+  wheel/persona and starts a new session. The AI provider (OpenRouter, OpenAI,
   Gemini or custom) is chosen in Settings → AI, not in the DJ panel.
+- The DJ session is not a playlist. It replaces the queue only when started,
+  keeps an empty backing queue so auto-load cannot append unrelated tracks, and
+  ends as soon as the user starts another queue or the session finishes.
+- On start the player is prepared paused. The intro is generated from the first
+  track and persona (AI when enabled, track-specific template otherwise), and
+  playback begins only after the utterance finishes.
+- The speaking overlay opens only while the player sheet is expanded. Starting
+  a DJ session expands it; opening Settings or Search hides the overlay. Swipe
+  down or Back dismisses the overlay for the current utterance.
+- Turning **AI DJ** off removes the Home card, the speaking overlay, the DJ
+  settings and the DJ section in AI settings; no DJ announcement runs.
 - The DJ builds an on-demand queue from the generated playlists: Jam is
   familiar, Discover is likely, Explore is far. The weights pick buckets;
   duplicates and the 20-track cap are enforced. It plays and speaks; ducking

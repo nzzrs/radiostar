@@ -191,6 +191,7 @@ import com.metrolist.music.ui.component.shimmer.ShimmerTheme
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.ui.player.BottomSheetPlayer
 import com.metrolist.music.ui.screens.Screens
+import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.ui.screens.DjSpeakingOverlay
 import com.metrolist.music.ui.screens.navigationBuilder
 import com.metrolist.music.ui.screens.settings.ChangelogScreen
@@ -855,6 +856,12 @@ class MainActivity : FragmentActivity() {
                         expandedBound = maxHeight,
                     )
 
+                LaunchedEffect(Unit) {
+                    DjSessionState.openPlayer.collect {
+                        playerBottomSheetState.expandSoft()
+                    }
+                }
+
                 val playerReadyState =
                     playerConnection?.service?.isPlayerReady?.collectAsStateWithLifecycle()
                         ?: remember { mutableStateOf(false) }
@@ -1413,7 +1420,7 @@ class MainActivity : FragmentActivity() {
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
 
-                    DjSpeakingOverlay()
+                    DjSpeakingOverlay(visible = playerBottomSheetState.isExpanded)
 
                     if (showAccountDialog) {
                         AccountSettingsDialog(

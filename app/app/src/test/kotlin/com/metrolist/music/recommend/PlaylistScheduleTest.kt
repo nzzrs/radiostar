@@ -6,6 +6,7 @@
 package com.metrolist.music.recommend
 
 import java.time.LocalDate
+import java.time.LocalDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -80,6 +81,18 @@ class PlaylistScheduleTest {
 
         assertTrue(plan.daily)
         assertTrue(plan.weekly)
+    }
+
+    @Test
+    fun `playlist day rolls over at six in the morning`() {
+        assertEquals(
+            LocalDate.of(2026, 11, 5),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 5, 59)),
+        )
+        assertEquals(
+            LocalDate.of(2026, 11, 6),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 6, 0)),
+        )
     }
 
     @Test
