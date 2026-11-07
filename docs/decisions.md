@@ -428,6 +428,11 @@ test; the database rows, artist maps and generation path are verified.
   the TTS pitch/rate and the wording, not the recommendation math.
 - Starting the DJ is explicit. Only then does the app build an on-demand queue
   and talk between tracks. Nothing changes the queue outside a DJ session.
+- The DJ card starts the session; a discreet gear opens the settings panel.
+  Save persists the wheel/persona and restarts the session. The panel no longer
+  chooses the AI provider: that lives in Settings → AI (Gemini included).
+- While the DJ speaks, a full-screen abstract sphere view appears and returns to
+  the song view when the utterance ends.
 
 ## D-16 — Scrobbler-first listening history
 
@@ -450,6 +455,11 @@ test; the database rows, artist maps and generation path are verified.
   off. A completed import immediately requests playlist regeneration through
   `RadioStarRefreshBus`; daily/weekly stamps are bypassed for that explicit
   refresh.
+- The last import result is persisted (`scrobblerLastResult`), so leaving and
+  re-entering the screen no longer says "Never imported". Incremental sync
+  starts from the newest page and stops at the saved timestamp; a local count
+  below the service total triggers a repair backfill instead of re-downloading
+  everything or silently keeping a capped checkpoint.
 - Outbound scrobbling stays as backup. The app both sends its own listens and
   downloads the service's history. Last.fm outbound is the existing path;
   ListenBrainz/self-hosted submission remains planned.
@@ -468,6 +478,8 @@ test; the database rows, artist maps and generation path are verified.
 - Settings → RadioStar includes **Credits and licences**; the full list lives in
   `docs/CREDITS.md` (Metrolist, LAION CLAP, ONNX Runtime, Media3, DPP paper,
   key profiles). Rejected MERT/Essentia licences are recorded.
+- The optional DJ AI key is encrypted with AES/GCM in the Android Keystore
+  (`SecureKeyStore`); plaintext is never written to DataStore.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

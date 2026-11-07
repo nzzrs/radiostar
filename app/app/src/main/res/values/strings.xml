@@ -365,7 +365,7 @@
     <string name="radiostar_special">Special</string>
     <string name="radiostar_track_count">%1$d tracks</string>
     <string name="radiostar_open_playlist">Open playlist</string>
-    <string name="radiostar_scrobbler">Scrobbler import</string>
+    <string name="radiostar_scrobbler">Listens import</string>
     <string name="radiostar_scrobbler_service">Service</string>
     <string name="radiostar_scrobbler_user">Username</string>
     <string name="radiostar_scrobbler_url">Server URL</string>

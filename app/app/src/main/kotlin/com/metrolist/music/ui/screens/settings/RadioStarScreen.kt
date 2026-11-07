@@ -6,8 +6,6 @@
 package com.metrolist.music.ui.screens.settings
 
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -42,32 +40,29 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarDjApiKeyKey
 import com.metrolist.music.constants.RadioStarDjKey
-import com.metrolist.music.constants.RadioStarHistoryKey
 import com.metrolist.music.constants.RadioStarServerKey
 import com.metrolist.music.constants.ScrobblerApiKeyKey
 import com.metrolist.music.constants.ScrobblerBaseUrlKey
 import com.metrolist.music.constants.ScrobblerLastFmUserKey
+import com.metrolist.music.constants.ScrobblerLastResultKey
 import com.metrolist.music.constants.ScrobblerListenBrainzUserKey
 import com.metrolist.music.constants.ScrobblerServiceKey
 import com.metrolist.music.constants.ScrobblerSyncFrequencyKey
 import com.metrolist.music.constants.ScrobblerTokenKey
-import com.metrolist.music.recommend.ListenHistory
 import com.metrolist.music.recommend.ScrobblerConfig
 import com.metrolist.music.recommend.ScrobblerImporter
 import com.metrolist.music.recommend.RadioStarRefreshBus
 import com.metrolist.music.recommend.ScrobblerSyncFrequency
+import com.metrolist.music.recommend.SecureKeyStore
 import com.metrolist.music.recommend.ScrobblerService
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberPreference
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private const val MAX_HISTORY_KEYS = 5_000
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,7 +84,6 @@ fun RadioStarScreen(navController: NavController) {
 
     var dj by rememberPreference(RadioStarDjKey, globalDj)
     var server by rememberPreference(RadioStarServerKey, globalServer)
-    var history by rememberPreference(RadioStarHistoryKey, emptySet<String>())
     var scrobblerService by rememberPreference(ScrobblerServiceKey, ScrobblerService.NONE.id)
     var lastFmUser by rememberPreference(ScrobblerLastFmUserKey, "")
     var listenBrainzUser by rememberPreference(ScrobblerListenBrainzUserKey, "")
@@ -97,43 +91,20 @@ fun RadioStarScreen(navController: NavController) {
     var token by rememberPreference(ScrobblerTokenKey, "")
     var apiKey by rememberPreference(ScrobblerApiKeyKey, "")
     var syncFrequency by rememberPreference(ScrobblerSyncFrequencyKey, ScrobblerSyncFrequency.SIX_HOURS.id)
-    var importStatus by remember { mutableStateOf("") }
+    var importStatus by rememberPreference(ScrobblerLastResultKey, "")
     var importing by remember { mutableStateOf(false) }
     var progressFetched by remember { mutableStateOf(0) }
     var progressTotal by remember { mutableStateOf<Long?>(null) }
     var showServiceDialog by remember { mutableStateOf(false) }
+    var djApiCipher by rememberPreference(RadioStarDjApiKeyKey, "")
     var showCredits by remember { mutableStateOf(false) }
 
     var showServerDialog by remember { mutableStateOf(false) }
     var serverDraft by remember { mutableStateOf("") }
     var inputTarget by remember { mutableStateOf<String?>(null) }
     var inputDraft by remember { mutableStateOf("") }
-    var importFailed by remember { mutableStateOf(false) }
     val service =
         ScrobblerService.values().firstOrNull { it.id == scrobblerService } ?: ScrobblerService.NONE
-
-    val importer =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri == null) return@rememberLauncherForActivityResult
-            scope.launch {
-                val text =
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            context.contentResolver
-                                .openInputStream(uri)
-                                ?.bufferedReader()
-                                ?.use { it.readText() }
-                        }.getOrNull()
-                    }
-                if (text.isNullOrBlank()) {
-                    importFailed = true
-                    return@launch
-                }
-                val keys = ListenHistory.historyKeys(ListenHistory.parseCsv(text))
-                history = keys.take(MAX_HISTORY_KEYS).toSet()
-                importFailed = false
-            }
-        }
 
     Column(
         Modifier
@@ -170,6 +141,15 @@ fun RadioStarScreen(navController: NavController) {
                             Switch(checked = dj, onCheckedChange = { dj = it })
                         },
                         onClick = { dj = !dj },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.lock),
+                        title = { Text("DJ AI API key") },
+                        description = { Text(if (djApiCipher.isBlank()) "—" else "••••••") },
+                        onClick = {
+                            inputTarget = "djkey"
+                            inputDraft = SecureKeyStore.decrypt(djApiCipher).orEmpty()
+                        },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.info),
@@ -330,35 +310,6 @@ fun RadioStarScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Material3SettingsGroup(
-            title = stringResource(R.string.radiostar_history),
-            items =
-                listOf(
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.queue_music),
-                        title = { Text(stringResource(R.string.radiostar_history)) },
-                        description = {
-                            Text(
-                                if (importFailed) {
-                                    stringResource(R.string.radiostar_history_failed)
-                                } else if (history.isEmpty()) {
-                                    stringResource(R.string.radiostar_history_help)
-                                } else {
-                                    stringResource(R.string.radiostar_history_count, history.size)
-                                },
-                            )
-                        },
-                        onClick = { importer.launch(arrayOf("text/csv", "text/plain", "*/*")) },
-                    ),
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.clear_all),
-                        title = { Text(stringResource(R.string.radiostar_history_clear)) },
-                        enabled = history.isNotEmpty(),
-                        onClick = { history = emptySet() },
-                    ),
-                ),
-        )
-
         Spacer(modifier = Modifier.height(16.dp))
     }
 
@@ -409,6 +360,7 @@ fun RadioStarScreen(navController: NavController) {
                         "user" -> stringResource(R.string.radiostar_scrobbler_user)
                         "url" -> stringResource(R.string.radiostar_scrobbler_url)
                         "apikey" -> stringResource(R.string.radiostar_scrobbler_api_key)
+                        "djkey" -> "DJ AI API key"
                         else -> stringResource(R.string.radiostar_scrobbler_token)
                     },
                 )
@@ -435,6 +387,7 @@ fun RadioStarScreen(navController: NavController) {
                             "url" -> baseUrl = inputDraft.trim().trimEnd('/')
                             "token" -> token = inputDraft.trim()
                         "apikey" -> apiKey = inputDraft.trim()
+                        "djkey" -> djApiCipher = SecureKeyStore.encrypt(inputDraft.trim()).orEmpty()
                         }
                         inputTarget = null
                     },

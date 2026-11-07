@@ -45,14 +45,15 @@ import com.metrolist.music.recommend.DjPresence
 @Composable
 fun DjHomeCard(
     config: DjConfig,
-    onClick: () -> Unit,
+    onStart: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     Card(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clickable(onClick = onClick),
+                .clickable(onClick = onStart),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Row(
@@ -70,7 +71,7 @@ fun DjHomeCard(
                 Text(text = config.persona.emoji, style = MaterialTheme.typography.headlineSmall)
             }
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = config.persona.displayName,
                     style = MaterialTheme.typography.titleMedium,
@@ -82,6 +83,13 @@ fun DjHomeCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            androidx.compose.material3.IconButton(onClick = onSettings) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.ui.res.painterResource(R.drawable.settings),
+                    contentDescription = "DJ settings",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -90,9 +98,7 @@ fun DjHomeCard(
 fun DjPanelDialog(
     config: DjConfig,
     aiEnabled: Boolean,
-    aiProvider: String,
     onAiChange: (Boolean) -> Unit,
-    onAiProviderChange: (String) -> Unit,
     onConfigChange: (DjConfig) -> Unit,
     onDismiss: () -> Unit,
     onStart: () -> Unit,
@@ -138,18 +144,6 @@ fun DjPanelDialog(
                     )
                     androidx.compose.material3.Switch(checked = aiEnabled, onCheckedChange = onAiChange)
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    listOf("OpenRouter", "OpenAI", "Custom").forEach { provider ->
-                        FilterChip(
-                            selected = aiProvider == provider,
-                            onClick = { onAiProviderChange(provider) },
-                            label = { Text(provider) },
-                        )
-                    }
-                }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.radiostar_dj_personality),
@@ -176,7 +170,7 @@ fun DjPanelDialog(
         },
         confirmButton = {
             TextButton(onClick = onStart) {
-                Text(stringResource(R.string.radiostar_dj_start))
+                Text(stringResource(R.string.radiostar_save))
             }
         },
         dismissButton = {

@@ -221,6 +221,7 @@ import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
 import com.metrolist.music.recommend.DjAiCommentator
 import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.recommend.DjScript
 import com.metrolist.music.recommend.TempoKeyEstimator
 import org.json.JSONObject
@@ -4165,6 +4166,11 @@ class MusicService :
             radioStarDj = true
             djPersona = persona
             announcedPair = null
+            DjSessionState.speaking(persona)
+            scope.launch {
+                kotlinx.coroutines.delay(8_000)
+                if (DjSessionState.state.value.speaking) DjSessionState.playing(persona)
+            }
             val announcer =
                 djAnnouncer
                     ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
@@ -4270,9 +4276,11 @@ class MusicService :
         if (ducked) {
             djBaseVolume = player.volume
             player.volume = (djBaseVolume * 0.22f).coerceIn(0f, 1f)
+            DjSessionState.speaking(djPersona ?: com.metrolist.music.recommend.DjPersona.CHERRY)
             Timber.tag("RadioStarDj").i("duck on volume=%.2f", player.volume)
         } else {
             player.volume = calculateEffectiveVolume()
+            DjSessionState.playing(djPersona ?: com.metrolist.music.recommend.DjPersona.CHERRY)
             Timber.tag("RadioStarDj").i("duck off volume=%.2f", player.volume)
         }
     }
@@ -4559,6 +4567,7 @@ class MusicService :
     override fun onDestroy() {
         isRunning = false
         djHandler.removeCallbacksAndMessages(null)
+        DjSessionState.idle()
         djAnnouncer?.shutdown()
         djAnnouncer = null
         analysisEmbedder?.close()

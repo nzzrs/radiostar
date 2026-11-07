@@ -8,6 +8,7 @@ package com.metrolist.music.recommend
 import android.content.Context
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.OpenRouterApiKey
+import com.metrolist.music.constants.RadioStarDjApiKeyKey
 import com.metrolist.music.constants.OpenRouterBaseUrlKey
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.utils.dataStore
@@ -34,7 +35,10 @@ object DjAiCommentator {
     ): String? =
         withContext(Dispatchers.IO) {
             val prefs = context.dataStore.data.first()
-            val key = prefs[OpenRouterApiKey]?.trim().orEmpty()
+            val secureKey =
+                prefs[RadioStarDjApiKeyKey]?.takeIf { it.isNotBlank() }?.let(SecureKeyStore::decrypt)
+            val key = secureKey?.trim()?.takeIf { it.isNotEmpty() }
+                ?: prefs[OpenRouterApiKey]?.trim().orEmpty()
             if (key.isEmpty()) return@withContext null
             val base =
                 prefs[OpenRouterBaseUrlKey]?.trim()?.takeIf { it.isNotEmpty() }
