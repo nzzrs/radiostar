@@ -1,3 +1,5 @@
 *
 !server/
 !server/**
+server/data/
+server/**/__pycache__/

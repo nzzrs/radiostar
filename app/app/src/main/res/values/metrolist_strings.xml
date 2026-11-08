@@ -997,4 +997,22 @@
     <string name="radiostar_artwork">Playlist artwork</string>
     <string name="radiostar_artwork_desc">Generated from the tracks in each list. Lower it to keep the cards discreet.</string>
     <string name="radiostar_dj_settings">DJ settings</string>
+    <string name="radiostar_account">Server account</string>
+    <string name="radiostar_account_no_server">Set the embedding server URL first</string>
+    <string name="radiostar_account_linked">Linked as %1$s · %2$s</string>
+    <string name="radiostar_account_not_linked">Not linked</string>
+    <string name="radiostar_account_linked_hint">This device is linked. Create a one-time code for another device or disconnect it.</string>
+    <string name="radiostar_auth_code">Pairing code</string>
+    <string name="radiostar_auth_password">Password</string>
+    <string name="radiostar_auth_connect">Connect</string>
+    <string name="radiostar_pairing_code">Pairing code</string>
+    <string name="radiostar_create_pairing_code">Create pairing code</string>
+    <string name="radiostar_logout">Disconnect this device</string>
+    <string name="radiostar_username">Username</string>
+    <string name="radiostar_password">Password</string>
+    <string name="radiostar_device_name">Device name</string>
+    <string name="radiostar_server_invalid">Enter an HTTPS URL such as https://embed.example.com</string>
+    <string name="radiostar_auth_network_error">Network error. Check the server URL and try again.</string>
+    <string name="radiostar_auth_failed">Authentication failed</string>
+    <string name="radiostar_auth_set_server">Set the embedding server URL first.</string>
 </resources>

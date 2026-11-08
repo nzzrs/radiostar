@@ -49,23 +49,28 @@ adb install -r app/build/outputs/apk/foss/debug/app-foss-debug.apk
 Only `arm64-v8a` is packaged. A release build is unsigned (no release keystore
 in the repository) and measures about 80 MB.
 
-The laptop embedding server is optional but cold candidates need it:
+The laptop embedding server is optional but cold candidates need it. Create the
+owner account once, start the server, then link the phone from
+`Settings → RadioStar → Server account` (pairing code or password):
 
 ```bash
-/tmp/opencode/clap-venv/bin/python server/app.py   # port 8787
+python server/admin.py init
+/tmp/opencode/clap-venv/bin/python server/app.py   # 127.0.0.1:8787
 ```
 
-Set the URL in `Settings → RadioStar → Embedding server`, or for automated
-tests:
+Put Cloudflare Tunnel or Tailscale in front; do not expose port 8787 directly.
+Set the public URL in `Settings → RadioStar → Embedding server`, or for
+automated tests:
 
 ```bash
-adb shell settings put global radiostar_embed_server http://<laptop>:8787
+adb shell settings put global radiostar_embed_server https://embed.example.com
 ```
 
 ## Tests
 
 ```bash
 python3 -m pytest spike -q                    # kernel + identity, 55 tests
+/tmp/opencode/clap-venv/bin/python -m pytest server/tests -q   # auth + API
 python3 -m unittest scripts/test_listenbrainz_export.py
 cd app && ./gradlew :app:testFossDebugUnitTest  # 103 recommendation tests
 ```

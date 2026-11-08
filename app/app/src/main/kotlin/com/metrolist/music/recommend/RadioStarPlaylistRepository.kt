@@ -56,6 +56,7 @@ class RadioStarPlaylistRepository
     constructor(
         @ApplicationContext private val context: Context,
         private val database: MusicDatabase,
+        private val auth: ServerAuthStore,
     ) {
         data class Card(
             val id: String,
@@ -242,6 +243,7 @@ class RadioStarPlaylistRepository
                 EmbeddingClient.embed(
                     server,
                     allPool.map { EmbeddingClient.Item(it.artistText, it.title) } + importedItems,
+                    auth,
                 ) ?: run {
                     Timber.tag(TAG).w("embedding failed for %d pool items", allPool.size)
                     return false
