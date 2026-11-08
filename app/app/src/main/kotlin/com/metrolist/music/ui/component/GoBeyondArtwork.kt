@@ -16,8 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.metrolist.music.recommend.GoBeyondArt
 import com.metrolist.music.recommend.GoBeyondCard
+import com.metrolist.music.recommend.GoBeyondFlags
 
 /**
  * Artwork for a Go Beyond card.
@@ -44,29 +47,38 @@ fun GoBeyondCardArtwork(
     val art = card.art
     when (art) {
         is GoBeyondArt.Flag -> {
-            Box(modifier = modifier.background(colorFor(art.hue).copy(alpha = 0.24f))) {
-                AbstractArt(
-                    seed = card.id.hashCode(),
-                    hue = art.hue,
-                    opacity = visible * 0.55f,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Text(
-                    text = art.flag.ifBlank { card.title.take(2).uppercase() },
-                    fontSize = 54.sp,
-                    modifier = Modifier.align(Alignment.Center).alpha(visible.coerceAtLeast(0.75f)),
-                )
-            }
+            FlagArt(
+                code = art.code,
+                fallback = art.flag.ifBlank { card.title.take(2) },
+                hue = art.hue,
+                seed = card.id.hashCode(),
+                opacity = visible,
+                modifier = modifier,
+            )
         }
 
         is GoBeyondArt.Photo -> {
-            Box(modifier = modifier.background(colorFor(art.hue).copy(alpha = 0.3f))) {
+            val tone = colorFor(art.hue)
+            Box(modifier = modifier.background(tone.copy(alpha = 0.3f))) {
                 if (!art.imageUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = art.imageUrl,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().alpha(visible),
+                    )
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            tone.copy(alpha = 0.28f * visible),
+                                        ),
+                                    ),
+                                ),
                     )
                 } else {
                     AbstractArt(
@@ -131,6 +143,58 @@ fun GoBeyondCardArtwork(
                 hue = art.hue,
                 opacity = visible,
                 modifier = modifier,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FlagArt(
+    code: String,
+    fallback: String,
+    hue: Int,
+    seed: Int,
+    opacity: Float,
+    modifier: Modifier = Modifier,
+) {
+    val tone = colorFor(hue)
+    val url = GoBeyondFlags.url(code)
+    Box(modifier = modifier.background(tone.copy(alpha = 0.24f))) {
+        if (url.isNotBlank()) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().alpha(opacity.coerceAtLeast(0.72f)),
+            )
+        } else {
+            AbstractArt(
+                seed = seed,
+                hue = hue,
+                opacity = opacity,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Text(
+                text = code.ifBlank { fallback.take(2) }.uppercase(),
+                fontSize = 38.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(color = tone.copy(alpha = 0.12f * opacity))
+            val ribbon = Path()
+            ribbon.moveTo(0f, size.height * 0.58f)
+            ribbon.lineTo(size.width, size.height * 0.38f)
+            ribbon.lineTo(size.width, size.height * 0.48f)
+            ribbon.lineTo(0f, size.height * 0.68f)
+            ribbon.close()
+            drawPath(ribbon, Color.White.copy(alpha = 0.14f * opacity))
+            drawRect(
+                color = Color.Black.copy(alpha = 0.08f * opacity),
+                topLeft = Offset(0f, size.height * 0.86f),
+                size = Size(size.width, size.height * 0.14f),
             )
         }
     }

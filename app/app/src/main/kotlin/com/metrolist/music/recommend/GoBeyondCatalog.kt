@@ -30,6 +30,7 @@ sealed interface GoBeyondArt {
     val hue: Int
 
     data class Flag(
+        val code: String,
         val flag: String,
         override val hue: Int,
     ) : GoBeyondArt
@@ -164,7 +165,28 @@ data class GoBeyondSelection(
     fun countrySearchQueries(): List<String> {
         val place = country?.trim()?.takeIf(String::isNotBlank) ?: return emptyList()
         val adjective = GoBeyondCatalog.countryAdjective(place)
-        val sound = listOfNotNull(genre?.trim(), mood?.trim()).filter { it.isNotBlank() }.joinToString(" ")
+        val era = periodLabel()
+        val focus = genre?.trim()?.takeIf(String::isNotBlank)
+        if (focus != null) {
+            val combined =
+                listOfNotNull(adjective, focus, era)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+            return listOf(
+                combined,
+                "$adjective $focus",
+                "$adjective $focus songs",
+                "$adjective $focus mix",
+                "$place $focus music",
+            )
+                .map(::cleanQuery)
+                .filter { it.isNotBlank() }
+                .distinct()
+        }
+        val sound =
+            listOfNotNull(mood?.trim(), era)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
         val combined = listOf(adjective, sound).filter { it.isNotBlank() }.joinToString(" ")
         return listOf(
             combined,
@@ -514,7 +536,12 @@ object GoBeyondCatalog {
             selection = GoBeyondSelection(country = entry.title),
             hue = entry.hue,
             prompt = entry.prompt,
-            art = GoBeyondArt.Flag(entry.flag.orEmpty(), entry.hue),
+            art =
+                GoBeyondArt.Flag(
+                    code = GoBeyondGeography.byName(entry.title)?.code.orEmpty(),
+                    flag = entry.flag.orEmpty(),
+                    hue = entry.hue,
+                ),
         )
 
     private fun genreCard(entry: GoBeyondEntry) =
