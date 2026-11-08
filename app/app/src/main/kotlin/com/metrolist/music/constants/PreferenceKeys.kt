@@ -752,6 +752,7 @@ val RadioStarDjApiKeyKey = stringPreferencesKey("radiostarDjApiKey")
 val RadioStarDjProviderKey = stringPreferencesKey("radiostarDjProvider")
 val RadioStarDjBaseUrlKey = stringPreferencesKey("radiostarDjBaseUrl")
 val RadioStarDjModelKey = stringPreferencesKey("radiostarDjModel")
+val RadioStarArtworkOpacityKey = floatPreferencesKey("radiostarArtworkOpacity")
 
 const val RADIOSTAR_DEFAULT_DJ_PROVIDER = "Gemini"
 const val RADIOSTAR_DEFAULT_DJ_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"

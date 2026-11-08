@@ -62,6 +62,7 @@ class RadioStarPlaylistRepository
             val title: String,
             val horizon: PlaylistHorizon,
             val trackCount: Int,
+            val artworkSeeds: List<Int> = emptyList(),
         )
 
         private val mutableCards = MutableStateFlow<List<Card>>(emptyList())
@@ -452,7 +453,13 @@ class RadioStarPlaylistRepository
                 RadioStarPlaylistSpecs.all.mapNotNull { spec ->
                     val playlist = database.playlist(spec.id).first() ?: return@mapNotNull null
                     if (playlist.songCount == 0) return@mapNotNull null
-                    Card(spec.id, spec.title, spec.horizon, playlist.songCount)
+                    val seeds =
+                        database
+                            .playlistSongs(spec.id)
+                            .first()
+                            .take(4)
+                            .map { it.song.id.hashCode() }
+                    Card(spec.id, spec.title, spec.horizon, playlist.songCount, seeds)
                 }
             mutableCards.value = loaded
             Timber.tag(TAG).i("cards=%d", loaded.size)

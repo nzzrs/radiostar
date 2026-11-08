@@ -111,6 +111,7 @@ import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarArtworkOpacityKey
 import com.metrolist.music.constants.RadioStarDjAiKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjFarKey
@@ -692,6 +693,7 @@ fun HomeScreen(
     var showDjPanel by remember { mutableStateOf(false) }
     var djAi by rememberPreference(RadioStarDjAiKey, false)
     var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
+    val artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
     val djScope = rememberCoroutineScope()
     val startDj: (DjConfig) -> Unit = { config ->
@@ -1232,6 +1234,7 @@ fun HomeScreen(
                 item(key = "radiostar_shelf") {
                     RadioStarShelf(
                         cards = radioStarCards,
+                        artworkOpacity = artworkOpacity,
                         onOpen = { id -> navController.navigate("local_playlist/$id") },
                         onPlay = { card ->
                             djScope.launch {
@@ -1247,35 +1250,19 @@ fun HomeScreen(
                                 }
                             }
                         },
-                    )
-                }
-
-                if (aiDjEnabled) {
-                item(key = "radiostar_dj") {
-                    DjHomeCard(
-                        config = djConfig,
-                        onStart = { startDj(djConfig) },
-                        onSettings = { showDjPanel = true },
-                    )
-                    if (showDjPanel) {
-                        DjPanelDialog(
-                            config = djConfig,
-                            aiEnabled = djAi,
-                            onAiChange = { djAi = it },
-                            onConfigChange = { config ->
-                                djPersona = config.persona
-                                djKnown = config.known
-                                djFar = config.far
-                                djLikely = config.likely
+                        djContent =
+                            if (aiDjEnabled) {
+                                {
+                                    DjHomeCard(
+                                        config = djConfig,
+                                        onStart = { startDj(djConfig) },
+                                        onSettings = { showDjPanel = true },
+                                    )
+                                }
+                            } else {
+                                null
                             },
-                            onDismiss = { showDjPanel = false },
-                            onStart = {
-                                showDjPanel = false
-                                startDj(djConfig)
-                            },
-                        )
-                    }
-                }
+                    )
                 }
 
                 if (isLoading && homePage?.chips.isNullOrEmpty()) {
@@ -2688,5 +2675,24 @@ fun HomeScreen(
                 },
             )
         }
+    }
+
+    if (aiDjEnabled && showDjPanel) {
+        DjPanelDialog(
+            config = djConfig,
+            aiEnabled = djAi,
+            onAiChange = { djAi = it },
+            onConfigChange = { config ->
+                djPersona = config.persona
+                djKnown = config.known
+                djFar = config.far
+                djLikely = config.likely
+            },
+            onDismiss = { showDjPanel = false },
+            onStart = {
+                showDjPanel = false
+                startDj(djConfig)
+            },
+        )
     }
 }
