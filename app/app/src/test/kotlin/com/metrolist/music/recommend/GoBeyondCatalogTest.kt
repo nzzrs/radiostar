@@ -77,10 +77,28 @@ class GoBeyondCatalogTest {
 
     @Test
     fun `artist cards come from the supplied listener artists`() {
-        val cards = GoBeyondCatalog.artistCards(listOf("Björk", "Fela Kuti", "Björk"))
+        val cards =
+            GoBeyondCatalog.artistCards(
+                names = listOf("Björk", "Fela Kuti", "Björk"),
+                photoUrls = mapOf("Björk" to "https://example.test/bjork-banner.jpg"),
+            )
 
         assertEquals(listOf("Björk", "Fela Kuti"), cards.map { it.title })
         assertTrue(cards.first().selection.artist == "Björk")
+        assertEquals(
+            "https://example.test/bjork-banner.jpg",
+            (cards.first().art as GoBeyondArt.Photo).imageUrl,
+        )
+    }
+
+    @Test
+    fun `country cards carry a real flag code for stylised artwork`() {
+        val peru = GoBeyondCatalog.cards(GoBeyondSection.COUNTRY).first { it.title == "Peru" }
+        val art = peru.art as GoBeyondArt.Flag
+
+        assertEquals("PE", art.code)
+        assertEquals("https://flagcdn.com/w320/pe.png", GoBeyondFlags.url("PE"))
+        assertEquals("https://flagcdn.com/w320/pe.png", GoBeyondFlags.url("pe"))
     }
 
     @Test
@@ -124,6 +142,17 @@ class GoBeyondCatalogTest {
 
         assertTrue(queries.any { it.contains("Brazilian", ignoreCase = true) })
         assertTrue(queries.any { it.contains("music", ignoreCase = true) })
+    }
+
+    @Test
+    fun `country genre and period stay in the same query`() {
+        val selection = GoBeyondSelection(country = "Peru", genre = "Rock", fromYear = 1980, toYear = 1989)
+        val queries = selection.countrySearchQueries()
+
+        assertTrue(queries.isNotEmpty())
+        assertTrue(queries.first().contains("Peruvian", ignoreCase = true))
+        assertTrue(queries.first().contains("Rock", ignoreCase = true))
+        assertTrue(queries.first().contains("1980s", ignoreCase = true))
     }
 
     @Test

@@ -31,6 +31,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 
 data class GoBeyondSectionFeed(
@@ -72,6 +73,8 @@ class GoBeyondRepository
         private val database: MusicDatabase,
         private val auth: ServerAuthStore,
         private val originResolver: ArtistOriginResolver,
+        private val genreResolver: ArtistGenreResolver,
+        private val artResolver: ArtistArtworkResolver,
     ) {
         suspend fun feed(): GoBeyondFeed =
             withContext(Dispatchers.IO) {
@@ -97,9 +100,23 @@ class GoBeyondRepository
                     } else {
                         insights.copy(gatewayAffinity = insights.gatewayAffinity + countryHints)
                     }
+                val cachedPhotos = artResolver.cached(artistNames)
+                val missingPhotos =
+                    artistNames
+                        .filter { it !in cachedPhotos }
+                        .take(ARTWORK_ARTISTS)
+                val fetchedPhotos =
+                    if (missingPhotos.isEmpty()) {
+                        emptyMap()
+                    } else {
+                        withTimeoutOrNull(ARTWORK_BUDGET_MS) {
+                            artResolver.resolve(missingPhotos)
+                        }.orEmpty()
+                    }
+                val networkPhotos = cachedPhotos + fetchedPhotos
                 val photoUrls =
                     artistNames.associateWith { name ->
-                        artistArtwork(name)
+                        networkPhotos[name]?.takeIf { it.isNotBlank() } ?: artistArtwork(name)
                     }
                 val artistCards = GoBeyondCatalog.artistCards(artistNames, photoUrls)
                 val orderedEvents = events.sortedByDescending { it.at }.take(200)
@@ -356,7 +373,12 @@ class GoBeyondRepository
             if (selection.country != null) {
                 val playlistPool = LinkedHashMap<String, PooledSong>()
                 for (query in selection.countrySearchQueries().take(COUNTRY_PLAYLIST_QUERIES)) {
-                    addPlaylistResults(query = query, targetScore = 1.0, merged = playlistPool)
+                    addPlaylistResults(
+                        query = query,
+                        targetScore = 1.0,
+                        merged = playlistPool,
+                        requiredGenre = selection.genre,
+                    )
                 }
                 val songPool = LinkedHashMap<String, PooledSong>()
                 for (query in selection.countrySearchQueries().take(COUNTRY_SONG_QUERIES)) {
@@ -405,7 +427,8 @@ class GoBeyondRepository
                             origin == null || origin == targetCode
                         }
                     }
-                return originFiltered.ifEmpty { candidatePool }.take(MAX_CANDIDATES)
+                return constrainToGenre(selection, originFiltered.ifEmpty { candidatePool })
+                    .take(MAX_CANDIDATES)
             }
 
             for (query in selection.searchQueries().take(GENERAL_QUERIES)) {
@@ -425,7 +448,58 @@ class GoBeyondRepository
                         .forEach { song -> merge(merged, song, 0.35) }
                 }
             }
-            return merged.values.take(MAX_CANDIDATES)
+            return constrainToGenre(selection, merged.values.toList()).take(MAX_CANDIDATES)
+        }
+
+        /**
+         * Keeps only artists whose MusicBrainz tags contain the requested genre.
+         * Artists without tag data remain eligible as filler, so a sparse genre
+         * still returns something without letting known cumbia into a rock list.
+         */
+        private suspend fun constrainToGenre(
+            selection: GoBeyondSelection,
+            pool: List<PooledSong>,
+        ): List<PooledSong> {
+            val genre = selection.genre?.trim()?.takeIf(String::isNotBlank) ?: return pool
+            if (pool.isEmpty()) return pool
+            val names =
+                pool.mapNotNull { it.song.artists.firstOrNull()?.name }
+                    .distinct()
+                    .take(GENRE_ARTISTS)
+            val lookup = genreResolver.resolve(names)
+            if (!lookup.online && lookup.tags.values.all { it.isNullOrEmpty() }) {
+                Timber.tag(TAG).w("genre=%s skipped: MusicBrainz unavailable", genre)
+                return pool
+            }
+            val result =
+                GoBeyondGenre.filter(
+                    genre = genre,
+                    items = pool,
+                    tagsOf = { pooled ->
+                        pooled.song.artists.firstOrNull()?.name
+                            ?.let(::normalizeName)
+                            ?.let(lookup.tags::get)
+                    },
+                    fillTo = GENRE_FILL,
+                )
+            Timber.tag(TAG).i(
+                "genre=%s verified=%d unknown=%d rejected=%d kept=%d",
+                genre,
+                result.verified,
+                result.unknown,
+                result.rejected,
+                result.accepted.size,
+            )
+            if (result.verified >= GENRE_MIN_VERIFIED) {
+                return pool.filter { pooled ->
+                    val tags =
+                        pooled.song.artists.firstOrNull()?.name
+                            ?.let(::normalizeName)
+                            ?.let(lookup.tags::get)
+                    !tags.isNullOrEmpty() && GoBeyondGenre.matches(genre, tags)
+                }
+            }
+            return result.accepted.ifEmpty { pool }
         }
 
         private suspend fun addSongResults(
@@ -456,6 +530,7 @@ class GoBeyondRepository
             query: String,
             targetScore: Double,
             merged: LinkedHashMap<String, PooledSong>,
+            requiredGenre: String? = null,
         ) {
             val playlists =
                 runCatching {
@@ -463,6 +538,10 @@ class GoBeyondRepository
                 }.getOrNull()
                     ?.items
                     ?.filterIsInstance<PlaylistItem>()
+                    ?.filter { playlist ->
+                        requiredGenre.isNullOrBlank() ||
+                            GoBeyondGenre.matches(requiredGenre, listOf(playlist.title))
+                    }
                     ?.take(1)
                     .orEmpty()
             for (playlist in playlists) {
@@ -663,8 +742,13 @@ class GoBeyondRepository
             const val COUNTRY_SONG_QUERIES = 5
             const val COUNTRY_CURATED_MIN = 15
             const val ORIGIN_ARTISTS = 200
+            const val GENRE_ARTISTS = 120
+            const val GENRE_FILL = 10
+            const val GENRE_MIN_VERIFIED = 4
             const val GENERAL_QUERIES = 4
             const val MAX_ARTIST_CARDS = 12
+            const val ARTWORK_ARTISTS = 8
+            const val ARTWORK_BUDGET_MS = 3_000L
             const val SECTION_CARDS = 16
             const val COUNTRY_POOL = 40
             const val GENRE_POOL = 32
