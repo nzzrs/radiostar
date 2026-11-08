@@ -1,0 +1,9 @@
+# Example Cloudflare Tunnel configuration. Copy it outside the repository,
+# replace the tunnel id and hostname, and keep the credentials JSON private.
+tunnel: <tunnel-id>
+credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: embed.example.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404

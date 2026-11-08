@@ -87,11 +87,11 @@ delivered as playlists, never by changing what the user chose to play.
   user ─────────▶│ UI · playlists · DJ · player │
                  │ local history · analysis     │
                  └───────┬─────────────┬───────┘
-                         │ HTTPS       │ HTTP (LAN/Tailscale)
+                         │ HTTPS       │ HTTPS (Cloudflare/Tailscale)
                          ▼             ▼
                  ┌───────────────┐  ┌────────────────────┐
                  │ YouTube Music │  │ laptop text tower  │
-                 └───────────────┘  │ /health /embed     │
+                 └───────────────┘  │ /health /auth /embed│
                                     └────────────────────┘
                          │
                          │ HTTPS, optional
@@ -105,9 +105,10 @@ delivered as playlists, never by changing what the user chose to play.
 ### 3.2 External interfaces
 
 - **YouTube Music / InnerTube**: radio candidates, stream URLs, metadata.
-- **Embedding server** `POST /embed`, `GET /health`, port 8787. Bound to
-  `0.0.0.0`, reachable over LAN or Tailscale; no authentication (LAN-only
-  developer service).
+- **Embedding server** `POST /embed`, `GET /health`, `/auth/*`, port 8787.
+  Binds `127.0.0.1` by default and runs behind Cloudflare Tunnel or another
+  HTTPS reverse proxy. `/embed` requires a device Bearer token; access tokens
+  last 15 minutes and refresh tokens rotate.
 - **Scrobblers**:
   - Last.fm Web API: `user.getRecentTracks`, `track.scrobble`,
     `track.updateNowPlaying`.
@@ -162,7 +163,7 @@ app/
 ├── db/            Room entities/DAOs (songs, events, playlists)
 ├── lastfm/        Last.fm Web API client
 ├── recommend/     ScrobblerImporter/Sync, ScrobbleSink, TelemetryStore
-server/            Python text tower (/health, /embed, SQLite cache)
+server/            Python text tower (/health, /auth/*, /embed, SQLite auth/cache)
 scripts/           ListenBrainz CSV export tool
 spike/             archived research evidence
 ```
@@ -220,9 +221,11 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
 ### 5.5 External text tower (`server/`)
 
 - Loads CLAP text tower once (~20 s).
-- `GET /health` → `{"ok": true, "model": "clap-htsat-tiny"}`.
+- `GET /health` → `{"ok": true}`.
 - `POST /embed` → 512-d unit vectors, SQLite cache, one lock around the model.
-- Standard library only; binds `0.0.0.0:8787`.
+- Authenticated with per-device opaque tokens; accounts and devices in
+  `server/data/auth.sqlite`, Argon2id passwords, one-time pairing codes.
+- Binds `127.0.0.1:8787` and expects Cloudflare Tunnel or another HTTPS proxy.
 
 ## 6. Runtime View
 
@@ -433,8 +436,9 @@ C4 deployment diagram: [`c4-model.md` §5](c4-model.md#5-deployment-view).
 
 - **Phone**: one APK, arm64-v8a, debug `link.nzrs.radiostar.dev`, release
   `link.nzrs.radiostar` (unsigned in this repository).
-- **Laptop**: Python 3.12 venv, `server/app.py`, port 8787. LAN or Tailscale;
-  MagicDNS `nzen` / `nzen.tail81a589.ts.net` in the reference setup.
+- **Laptop**: Python 3.12 venv, `server/app.py`, port 8787 on loopback.
+  Cloudflare Tunnel or Tailscale in front; the public hostname never exposes
+  the port directly.
 - **Scrobblers**: internet HTTPS from the phone; no laptop involvement.
 - **No cloud dependency**: without the laptop, playback still works; new
   playlists using text embeddings are skipped until it is reachable. Local
@@ -445,10 +449,14 @@ C4 deployment diagram: [`c4-model.md` §5](c4-model.md#5-deployment-view).
 ### 8.1 Privacy and security
 
 - Audio buffers are ephemeral; never logged, written or uploaded.
-- Metadata sent to the embedding server is title/artist only.
+- Metadata sent to the embedding server is title/artist only; public transport
+  is HTTPS through Cloudflare Tunnel or Tailscale.
+- The embedding server requires a per-device Bearer token. The refresh token is
+  encrypted with Android Keystore and excluded from backup; access tokens stay
+  in memory. Pairing codes are single-use and expire.
 - Scrobbler tokens are device-local; redact them from logs and crash reports.
-- Cleartext HTTP is allowed only for the user's own embedding server; the
-  network security config permits LAN/Tailscale.
+- Release builds reject cleartext HTTP; debug builds allow it only for local
+  development.
 - No analytics SDK; advanced telemetry is local-only and opt-in. There is no
   external upload path in this build.
 

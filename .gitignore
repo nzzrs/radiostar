@@ -36,6 +36,10 @@ spike/**/*.pt
 /630k-*.pt*
 *.p12
 *.pfx
+
+# Server auth database (local secrets)
+server/data/*
+!server/data/.gitkeep
 key.properties
 key.properties.bak.*
 keystore.properties

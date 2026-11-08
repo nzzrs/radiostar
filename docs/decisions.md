@@ -537,6 +537,30 @@ test; the database rows, artist maps and generation path are verified.
 - Telemetry never runs unless the user enables it; turning it off stops new
   writes immediately.
 
+## D-21 — Server authentication for the public tunnel
+
+**Status:** implemented.
+
+- The embedding server binds `127.0.0.1:8787` by default and is reached through
+  Cloudflare Tunnel. It no longer accepts unauthenticated `/embed` requests.
+- Accounts and devices are stored in SQLite. Passwords use Argon2id; pairing
+  codes are single-use and expire after five minutes.
+- Access tokens are opaque, last 15 minutes and stay in app memory. Refresh
+  tokens are opaque, last 30 days, rotate on use and are stored encrypted with
+  Android Keystore; only their SHA-256 hashes reach the server.
+- A refresh reuse outside a short grace window revokes the device family.
+  Logout and device revocation take effect on the next request.
+- `/embed` authenticates before reading the body, then applies per-device and
+  per-IP rate limits, a daily item quota, a thread cap and a 15 s socket timeout.
+- The app offers both a one-time pairing code and username/password login.
+  There is no public registration endpoint; accounts are created locally with
+  `python server/admin.py`.
+- Release builds reject cleartext HTTP. Debug builds keep a cleartext override
+  for the laptop server. The auth DataStore is excluded from Android backup.
+- This stays one owner with several devices. The schema can hold more users,
+  but open registration, email verification and a shared cache namespace are
+  deliberately out of scope until a second user exists.
+
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo
   checkpoint is a separate artefact).

@@ -3,13 +3,35 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
     image: radiostar-embed:local
     container_name: radiostar-embed
-    ports:
-      - "8787:8787"
+    # Host networking keeps the origin on 127.0.0.1 so cloudflared reaches it
+    # directly and CF-Connecting-IP can be trusted from a loopback peer.
+    network_mode: host
+    environment:
+      RADIOSTAR_AUTH_MODE: required
+      RADIOSTAR_HOST: 127.0.0.1
+      RADIOSTAR_DB_PATH: /app/server/data/auth.sqlite
+      RADIOSTAR_TRUST_PROXY: cloudflare
     volumes:
       # Reuse the checkpoint already downloaded by the project venv instead of
       # downloading 1.8 GB again inside the image.
       - /tmp/opencode/clap-venv/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt:/usr/local/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt:ro
       - ../spike/clap/out:/app/spike/clap/out
+      - ../server/data:/app/server/data
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
