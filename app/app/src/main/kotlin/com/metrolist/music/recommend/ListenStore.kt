@@ -79,6 +79,27 @@ class ListenStore(context: Context) {
         return fresh.size
     }
 
+    /** Removes every listen imported from one service and keeps the others. */
+    fun clear(service: String) {
+        if (service.isBlank() || !file.exists()) return
+        val kept =
+            file.useLines { lines ->
+                lines.filter { line ->
+                    line.isBlank() ||
+                        runCatching { JSONObject(line).optString("service") != service }.getOrDefault(true)
+                }.toList()
+            }
+        val temporary = File(file.parentFile, "${file.name}.tmp")
+        temporary.writeText(
+            kept.filter { it.isNotBlank() }.joinToString(separator = "\n", postfix = "\n"),
+            Charsets.UTF_8,
+        )
+        if (!temporary.renameTo(file)) {
+            file.writeText(temporary.readText(), Charsets.UTF_8)
+            temporary.delete()
+        }
+    }
+
     private fun valid(listen: ImportedListen): Boolean =
         listen.title.isNotBlank() && listen.artist.isNotBlank() && listen.listenedAt > 0L
 
