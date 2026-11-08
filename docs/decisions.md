@@ -598,12 +598,30 @@ test; the database rows, artist maps and generation path are verified.
 **Status:** implemented; Kotlin unit tests and server tests pass.
 
 - Search has a second tab with country, genre, artist, period, colour and mood
-  sections plus a custom combination builder. A predefined decade or a free
-  year range both describe the period.
+  sections plus a custom combination builder. Countries come from
+  `Locale.getISOCountries()` (flags, demonyms, aliases) and a searchable picker;
+  genres are a broad catalog plus a custom `+` entry; a predefined decade or a
+  free year range both describe the period.
+- Artist journeys hard-filter to the artist's own catalogue; country journeys
+  use the demonym and curated country playlists, then verify artist origin
+  through a batched, cached MusicBrainz lookup. Colour/mood are atmosphere
+  prompts: the colour word is not searched and literal colour titles are
+  penalized.
+- Country pickers use every ISO country with a flag; genre pickers combine a
+  broad catalog with a `+` custom entry. The landing view uses a local fuzzy
+  taste model (`GoBeyondPersonalize`) over telemetry, imports, active hours and
+  behaviour, never the network.
+- Card artwork is per-section: flags, artist photos or initials, abstract genre
+  art, era rings, colour palettes and mood atmospheres.
+- Typo tolerance and aliases go through `GoBeyondFuzzy` and
+  `GoBeyondResolver`; nonsense input is sanitized or dropped.
+- The landing view is ordered by `GoBeyondPersonalize`, a local fuzzy taste
+  model over telemetry, imports, active hours and behaviour. It never calls the
+  network.
 - A card searches YouTube Music, optionally embeds its semantic prompt and the
-  candidates on the user's own text tower, then ranks by prompt similarity,
-  decayed song/artist telemetry, recent and skipped memory, a small
-  unheard-artist bonus and a hard per-artist cap.
+  candidates on the user's own text tower, then ranks inside the constrained
+  target pool by prompt similarity, decayed song/artist telemetry, recent and
+  skipped memory, a small unheard-artist bonus and a hard per-artist cap.
 - The result is an ordinary local playlist with a stable `LP_RS_GO_*` id.
   Pull-to-refresh rebuilds the saved selection instead of creating a copy.
 - Playlist names carry the facets (`Go Beyond · Brazil · Shoegaze`). The player

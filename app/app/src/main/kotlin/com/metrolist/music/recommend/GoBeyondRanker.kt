@@ -13,6 +13,11 @@ data class GoBeyondCandidate(
     val artists: List<String>,
     val durationSeconds: Int? = null,
     val vector: DoubleArray? = null,
+    /**
+     * How strongly the candidate belongs to the requested target. Curated
+     * country playlists score 1.0; a loose search result scores less.
+     */
+    val targetScore: Double = 0.0,
 )
 
 data class GoBeyondRankContext(
@@ -23,6 +28,17 @@ data class GoBeyondRankContext(
      * and mood cards rank by meaning instead of by search position.
      */
     val promptVector: DoubleArray? = null,
+    /**
+     * Prompt words used for a lexical fallback when no embedding server is
+     * configured. Tracks whose title or artist contains these words rise.
+     */
+    val promptTerms: Set<String> = emptySet(),
+    /**
+     * Literal colour words. A song named "Purple Rain" should not win a
+     * request for music that *sounds* purple, so these get a hard penalty.
+     */
+    val literalTerms: Set<String> = emptySet(),
+    val literalPenalty: Double = 0.9,
     val heardIds: Set<String> = emptySet(),
     val recentIds: Set<String> = emptySet(),
     val skippedIds: Set<String> = emptySet(),
@@ -51,6 +67,7 @@ object GoBeyondRanker {
     private const val FAMILIAR_PENALTY = 0.10
     private const val COMFORT_BONUS = 0.06
     private const val NOVELTY_BONUS = 0.10
+    private const val TARGET_WEIGHT = 0.35
 
     fun rank(
         candidates: List<GoBeyondCandidate>,
@@ -101,6 +118,24 @@ object GoBeyondRanker {
                 ?.coerceIn(0.0, 1.0)
 
         var score = if (semantic != null) 0.50 + 0.35 * semantic else 0.50
+        val text = normalizeText(candidate.title + " " + candidate.artists.joinToString(" "))
+        if (context.literalTerms.isNotEmpty()) {
+            val literalHits =
+                context.literalTerms.count { term ->
+                    val normalized = normalizeText(term)
+                    normalized.isNotBlank() && text.contains(normalized)
+                }
+            if (literalHits > 0) {
+                score -= context.literalPenalty * literalHits.coerceAtMost(2)
+            }
+        }
+        val promptHits =
+            context.promptTerms.count { term ->
+                val normalized = normalizeText(term)
+                normalized.length >= 3 && text.contains(normalized)
+            }
+        score += (0.06 * promptHits).coerceAtMost(0.18)
+        score += TARGET_WEIGHT * candidate.targetScore.coerceIn(0.0, 1.0)
         val taste = context.bias.score(candidate.id, candidate.artists)
         score += TASTE_WEIGHT * taste
         if (candidate.id in context.likedIds) score += LIKED_BONUS
@@ -118,6 +153,13 @@ object GoBeyondRanker {
         if (familiar) score -= FAMILIAR_PENALTY * (0.5 + novelty)
         return score
     }
+
+    private fun normalizeText(value: String): String =
+        java.text.Normalizer
+            .normalize(value.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
 
     private fun dedupeKey(candidate: GoBeyondCandidate): String =
         buildString {

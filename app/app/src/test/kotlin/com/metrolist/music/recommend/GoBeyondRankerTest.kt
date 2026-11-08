@@ -15,9 +15,10 @@ class GoBeyondRankerTest {
         id: String,
         artist: String = "Artist",
         vector: DoubleArray? = null,
+        title: String = "Title $id",
     ) = GoBeyondCandidate(
         id = id,
-        title = "Title $id",
+        title = title,
         artists = listOf(artist),
         durationSeconds = 200,
         vector = vector,
@@ -120,5 +121,24 @@ class GoBeyondRankerTest {
             GoBeyondRanker.rank(listOf(candidate("known", "Known"), candidate("new", "New")), context)
 
         assertEquals("new", ranked.first().candidate.id)
+    }
+
+    @Test
+    fun `literal colour names are pushed below sounding candidates`() {
+        val ranked =
+            GoBeyondRanker.rank(
+                listOf(
+                    candidate("named", title = "Purple Rain", artist = "Purple Band"),
+                    candidate("sounding", title = "Velvet Haze"),
+                    candidate("plain", title = "Ordinary Song"),
+                ),
+                GoBeyondRankContext(
+                    literalTerms = setOf("purple"),
+                    promptTerms = setOf("hazy", "velvet", "dreamy"),
+                ),
+            )
+
+        assertEquals("sounding", ranked.first().candidate.id)
+        assertTrue(ranked.first { it.candidate.id == "named" }.score < 0.0)
     }
 }
