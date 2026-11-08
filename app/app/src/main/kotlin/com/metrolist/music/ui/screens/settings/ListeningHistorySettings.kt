@@ -45,6 +45,7 @@ import com.metrolist.music.constants.ScrobblerLastFmUserKey
 import com.metrolist.music.constants.ScrobblerLastResultKey
 import com.metrolist.music.constants.ScrobblerLastSyncKey
 import com.metrolist.music.constants.ScrobblerLastTotalKey
+import com.metrolist.music.constants.ScrobblerLastTotalServiceKey
 import com.metrolist.music.constants.ScrobblerListenBrainzUserKey
 import com.metrolist.music.constants.ScrobblerServiceKey
 import com.metrolist.music.constants.ScrobblerSyncFrequencyKey
@@ -84,12 +85,14 @@ fun ListeningHistorySettings(navController: NavController) {
     var importStatus by rememberPreference(ScrobblerLastResultKey, "")
     var lastChecked by rememberPreference(ScrobblerLastSyncKey, 0L)
     var serviceTotal by rememberPreference(ScrobblerLastTotalKey, 0L)
+    var serviceTotalService by rememberPreference(ScrobblerLastTotalServiceKey, "")
     var importing by remember { mutableStateOf(false) }
     var progressFetched by remember { mutableIntStateOf(0) }
     var progressTotal by remember { mutableStateOf<Long?>(null) }
     var localCount by remember { mutableIntStateOf(0) }
     var showImportServiceDialog by remember { mutableStateOf(false) }
     var showFrequencyDialog by remember { mutableStateOf(false) }
+    var showClearDialog by remember { mutableStateOf(false) }
     var inputTarget by remember { mutableStateOf<String?>(null) }
     var inputDraft by remember { mutableStateOf("") }
 
@@ -215,6 +218,7 @@ fun ListeningHistorySettings(navController: NavController) {
                                                 }
                                             importStatus = result.message
                                             localCount = result.localTotal
+                                            result.account?.let { listenBrainzUser = it }
                                             importing = false
                                             if (result.complete) RadioStarRefreshBus.request()
                                         }
@@ -235,7 +239,7 @@ fun ListeningHistorySettings(navController: NavController) {
                                 title = { Text(stringResource(R.string.radiostar_service_listens)) },
                                 description = {
                                     Text(
-                                        if (serviceTotal > 0L) {
+                                        if (serviceTotal > 0L && serviceTotalService == importService.id) {
                                             serviceTotal.toString()
                                         } else {
                                             stringResource(R.string.not_set)
@@ -244,6 +248,15 @@ fun ListeningHistorySettings(navController: NavController) {
                                 },
                             ),
                         )
+                        if (localCount > 0) {
+                            add(
+                                Material3SettingsItem(
+                                    icon = painterResource(R.drawable.delete),
+                                    title = { Text(stringResource(R.string.radiostar_import_clear)) },
+                                    onClick = { showClearDialog = true },
+                                ),
+                            )
+                        }
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.sync),
@@ -275,6 +288,19 @@ fun ListeningHistorySettings(navController: NavController) {
                     }
                 },
         )
+
+        if (importService != ScrobblerService.NONE &&
+            serviceTotal > 0L &&
+            serviceTotalService == importService.id &&
+            localCount > serviceTotal
+        ) {
+            Text(
+                text = stringResource(R.string.radiostar_service_total_lag, serviceTotal, localCount),
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
 
         if (importStatus.isNotBlank() || importing) {
             Column(
@@ -326,6 +352,33 @@ fun ListeningHistorySettings(navController: NavController) {
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showImportServiceDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text(stringResource(R.string.radiostar_import_clear)) },
+            text = { Text(stringResource(R.string.radiostar_import_clear_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearDialog = false
+                        scope.launch {
+                            ScrobblerImporter.clearImported(context, importService)
+                            localCount = 0
+                            serviceTotal = 0L
+                            serviceTotalService = importService.id
+                            importStatus = context.getString(R.string.radiostar_import_clear_done)
+                        }
+                    },
+                ) { Text(stringResource(R.string.radiostar_import_clear)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
                     Text(stringResource(android.R.string.cancel))
                 }
             },

@@ -262,7 +262,7 @@
     <string name="backup_create_success">Copia de seguridad creada con éxito</string>
     <string name="backup_create_failed">No se ha podido crear la copia de seguridad</string>
     <string name="restore_failed">Error al restaurar la copia de seguridad</string>
-    <string name="discord_information">Metrolist utiliza la biblioteca KizzyRPC para establecer el estado de su cuenta de Discord. Esto implica el uso de la conexión Discord Gateway, lo que podría considerarse una violación de las condiciones del servicio de Discord. Sin embargo, no se conocen casos de cuentas de usuario suspendidas por este motivo. Úselo bajo su propio riesgo.\n\nMetrolist solo extraerá su ficha; todo lo demás se almacena localmente.</string>
+    <string name="discord_information">RadioStar utiliza la biblioteca KizzyRPC para establecer el estado de su cuenta de Discord. Esto implica el uso de la conexión Discord Gateway, lo que podría considerarse una violación de las condiciones del servicio de Discord. Sin embargo, no se conocen casos de cuentas de usuario suspendidas por este motivo. Úselo bajo su propio riesgo.\n\nRadioStar solo extraerá su ficha; todo lo demás se almacena localmente.</string>
     <string name="dismiss">Descartar</string>
     <string name="options">Opciones</string>
     <string name="preview">Vista previa</string>
@@ -297,10 +297,10 @@
     <string name="radiostar_listening_history_desc">Importa listens, revisa qué hay de nuevo y elige la frecuencia de sincronización.</string>
     <string name="radiostar_scrobbling">Scrobbling</string>
     <string name="radiostar_scrobbling_desc">Elige a dónde se envían los listens nuevos, o déjalo desactivado.</string>
-    <string name="radiostar_about_tagline">Recomendaciones privadas, construidas sobre Metrolist</string>
+    <string name="radiostar_about_tagline">Recomendaciones privadas, en tu teléfono</string>
     <string name="radiostar_about_blurb">RadioStar guarda el historial, las playlists generadas y la telemetría local en este teléfono. La voz del DJ y los enlaces con IA son las únicas funciones que pueden llamar a un servicio externo.</string>
     <string name="radiostar_source">Código de RadioStar</string>
-    <string name="radiostar_upstream_note">RadioStar es un fork de Metrolist. La sección de abajo acredita y apoya a los desarrolladores originales; su trabajo hace posible esta app.</string>
+    <string name="radiostar_upstream_note">RadioStar es un fork GPL-3.0 de Metrolist. La atribución original, la licencia y la lista completa de componentes de código abierto están en Créditos y licencias.</string>
     <string name="radiostar_open_credits">Abrir créditos completos</string>
     <string name="radiostar_dj">AI DJ</string>
     <string name="radiostar_dj_desc">Activa las sesiones de DJ: la tarjeta, la vista hablada y los enlaces entre canciones. Si se desactiva, desaparece todo lo relacionado con el DJ.</string>
@@ -371,7 +371,11 @@
     <string name="radiostar_play_playlist">Reproducir playlist</string>
     <string name="radiostar_telemetry_clear_confirm">¿Borrar todos los eventos de telemetría local? No se puede deshacer.</string>
     <string name="radiostar_local_listens">Listens locales de este servicio</string>
-    <string name="radiostar_service_listens">Listens en el servicio</string>
+    <string name="radiostar_service_listens">Listens informados por el servicio</string>
+    <string name="radiostar_service_total_lag">El servicio informa %1$d listens, pero su API devolvió %2$d listens únicos. El contador del servicio puede quedar atrasado; el historial local importado es la fuente de verdad.</string>
+    <string name="radiostar_import_clear">Borrar listens importados</string>
+    <string name="radiostar_import_clear_confirm">¿Borrar los listens importados guardados en este teléfono? Si esta fuente sigue activa, la próxima sincronización los descargará otra vez.</string>
+    <string name="radiostar_import_clear_done">Listens importados borrados.</string>
     <string name="radiostar_last_checked">Última comprobación</string>
     <string name="radiostar_import_hint">La sincronización incremental revisa la página más nueva y se detiene en el punto guardado. Si el teléfono tiene menos listens que el servicio, repara el historial completo desde cero.</string>
 </resources>
