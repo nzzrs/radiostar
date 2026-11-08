@@ -33,6 +33,32 @@ def service(store):
     return TokenService(store), user_id
 
 
+def test_schema_v1_migrates_to_sync_tables(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.sqlite"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        "CREATE TABLE schema_version (version INTEGER NOT NULL);"
+        "INSERT INTO schema_version(version) VALUES (1);"
+    )
+    connection.close()
+
+    store = AuthStore(path)
+    try:
+        version = store._db.execute("SELECT version FROM schema_version").fetchone()["version"]
+        tables = {
+            row["name"]
+            for row in store._db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert version == 2
+        assert {"sync_items", "sync_sequence"} <= tables
+    finally:
+        store.close()
+
+
 def test_login_issues_working_access_and_refresh(service):
     tokens, _ = service
     issued = tokens.login("owner", PASSWORD, "Pixel")

@@ -424,6 +424,23 @@ fun SongMenu(
             // For episodes, show saved state and toggle save for later
             val isEpisode = song.song.isEpisode
             val isFavorite = if (isEpisode) song.song.inLibrary != null else song.song.liked
+            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!isEpisode) {
+                IconButton(
+                    onClick = {
+                        syncUtils.dislikeSong(
+                            song.song,
+                            song.artists.joinToString(", ") { it.name },
+                        )
+                        Toast.makeText(context, R.string.radiostar_disliked, Toast.LENGTH_SHORT).show()
+                    },
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.thumb_down),
+                        contentDescription = stringResource(R.string.radiostar_dislike),
+                    )
+                }
+            }
             IconButton(
                 onClick = {
                     if (isEpisode) {
@@ -481,6 +498,7 @@ fun SongMenu(
                     tint = if (isFavorite) MaterialTheme.colorScheme.error else LocalContentColor.current,
                     contentDescription = null,
                 )
+            }
             }
         },
     )

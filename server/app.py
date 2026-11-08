@@ -26,7 +26,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 try:  # works both as `python server/app.py` and `python -m server.app`
     from .auth import (
@@ -65,6 +65,10 @@ EMBED_DAILY_ITEMS = int(os.environ.get("RADIOSTAR_EMBED_DAILY_ITEMS", "50000"))
 MAX_BODY_BYTES = 1 << 20
 MAX_AUTH_BODY_BYTES = 8 << 10
 MAX_ITEMS = 256
+MAX_SYNC_ITEMS = 500
+MAX_SYNC_KEY_LENGTH = 512
+MAX_SYNC_PAYLOAD_BYTES = 256 << 10
+SYNC_KINDS = {"config", "reaction"}
 SOCKET_TIMEOUT_SECONDS = 15
 AUTH_MODES = {"off", "optional", "required"}
 
@@ -98,6 +102,64 @@ def parse_items(payload: Any) -> list[tuple[str, str]]:
             raise BadRequest(f"items[{index}].title must be a non-empty string")
         parsed.append((artist, title))
     return parsed
+
+
+def parse_sync_items(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        raise BadRequest("body must be a JSON object")
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise BadRequest("'items' must be a list")
+    if len(items) > MAX_SYNC_ITEMS:
+        raise BadRequest(f"too many items (max {MAX_SYNC_ITEMS})")
+
+    parsed: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise BadRequest(f"items[{index}] must be an object")
+        kind = item.get("kind")
+        if kind not in SYNC_KINDS:
+            raise BadRequest(f"items[{index}].kind is invalid")
+        key = item.get("key")
+        if not isinstance(key, str) or not key.strip():
+            raise BadRequest(f"items[{index}].key must be a non-empty string")
+        if len(key) > MAX_SYNC_KEY_LENGTH:
+            raise BadRequest(f"items[{index}].key is too long")
+        updated_at_ms = item.get("updated_at_ms")
+        if isinstance(updated_at_ms, bool) or not isinstance(updated_at_ms, int):
+            raise BadRequest(f"items[{index}].updated_at_ms must be an integer")
+        if updated_at_ms < 0:
+            raise BadRequest(f"items[{index}].updated_at_ms must be positive")
+        deleted = item.get("deleted", False)
+        if not isinstance(deleted, bool):
+            raise BadRequest(f"items[{index}].deleted must be a boolean")
+        raw_payload = item.get("payload", {})
+        if isinstance(raw_payload, str):
+            body = raw_payload
+        else:
+            body = json.dumps(raw_payload, separators=(",", ":"))
+        if len(body.encode("utf-8")) > MAX_SYNC_PAYLOAD_BYTES:
+            raise BadRequest(f"items[{index}].payload is too large")
+        parsed.append(
+            {
+                "kind": kind,
+                "key": key.strip(),
+                "updated_at_ms": updated_at_ms,
+                "deleted": deleted,
+                "payload": body,
+            }
+        )
+    return parsed
+
+
+def parse_query_int(query: str, name: str, default: int) -> int:
+    values = parse_qs(query).get(name)
+    if not values:
+        return default
+    try:
+        return int(values[0])
+    except (TypeError, ValueError) as exc:
+        raise BadRequest(f"{name} must be an integer") from exc
 
 
 def detect_lan_ip() -> str:
@@ -257,6 +319,12 @@ class EmbedHandler(BaseHTTPRequestHandler):
         if path == "/auth/devices":
             self._handle_devices()
             return
+        if path == "/sync/pull":
+            self._handle_sync_pull()
+            return
+        if path == "/sync/status":
+            self._handle_sync_status()
+            return
         self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
 
     def _handle_me(self) -> None:
@@ -292,6 +360,73 @@ class EmbedHandler(BaseHTTPRequestHandler):
             {"devices": self.ctx.tokens.list_devices(session.user_id, session.device_id)},
         )
 
+    def _handle_sync_pull(self) -> None:
+        try:
+            session = self._session()
+        except Unauthorized:
+            self._send_unauthorized()
+            return
+        if session is None:
+            self._send_unauthorized()
+            return
+        if not self._rate(f"sync:device:{session.device_id}", 120, 60):
+            self._send_error_json(
+                HTTPStatus.TOO_MANY_REQUESTS, "too many requests", {"Retry-After": "60"}
+            )
+            return
+        query = urlsplit(self.path).query
+        since = parse_query_int(query, "since", 0)
+        limit = parse_query_int(query, "limit", 1000)
+        result = self.ctx.store.pull_sync(session.user_id, since, limit)
+        result["server_time_ms"] = int(time.time() * 1000)
+        self._send_json(HTTPStatus.OK, result)
+
+    def _handle_sync_status(self) -> None:
+        try:
+            session = self._session()
+        except Unauthorized:
+            self._send_unauthorized()
+            return
+        if session is None:
+            self._send_unauthorized()
+            return
+        result = self.ctx.store.sync_status(session.user_id)
+        result["server_time_ms"] = int(time.time() * 1000)
+        self._send_json(HTTPStatus.OK, result)
+
+    def _handle_sync_wipe(self) -> None:
+        try:
+            session = self._session()
+        except Unauthorized:
+            self._send_unauthorized()
+            return
+        if session is None:
+            self._send_unauthorized()
+            return
+        self.ctx.store.wipe_sync(session.user_id)
+        self._send_json(HTTPStatus.OK, {"ok": True})
+
+    def _handle_sync_push(self) -> None:
+        session = self._session()
+        if session is None:
+            self._send_unauthorized()
+            return
+        ip = self._client_ip()
+        if not self._rate(f"sync:device:{session.device_id}", 120, 60) or not self._rate(
+            f"sync:ip:{ip}", 300, 60
+        ):
+            self._send_error_json(
+                HTTPStatus.TOO_MANY_REQUESTS, "too many requests", {"Retry-After": "60"}
+            )
+            return
+        payload = self._read_json_body(MAX_BODY_BYTES)
+        items = parse_sync_items(payload)
+        result = self.ctx.store.push_sync(
+            session.user_id, items, session.device_id
+        )
+        result["server_time_ms"] = int(time.time() * 1000)
+        self._send_json(HTTPStatus.OK, result)
+
     # -- POST ----------------------------------------------------------
 
     def do_POST(self) -> None:
@@ -309,6 +444,8 @@ class EmbedHandler(BaseHTTPRequestHandler):
                 self._handle_pairing_code()
             elif path == "/embed":
                 self._handle_embed()
+            elif path == "/sync/push":
+                self._handle_sync_push()
             else:
                 self._send_error_json(HTTPStatus.NOT_FOUND, "not found")
         except Unauthorized:
@@ -421,6 +558,9 @@ class EmbedHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         path = self._path()
+        if path == "/sync":
+            self._handle_sync_wipe()
+            return
         prefix = "/auth/devices/"
         if not path.startswith(prefix):
             self._send_error_json(HTTPStatus.NOT_FOUND, "not found")

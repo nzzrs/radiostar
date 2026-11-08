@@ -545,13 +545,14 @@ class RadioStarPlaylistRepository
             return sum
         }
 
-        private fun serverUrl(prefs: androidx.datastore.preferences.core.Preferences): String? =
+        private fun serverUrl(prefs: androidx.datastore.preferences.core.Preferences): String =
             prefs[RadioStarServerKey]?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
                 ?: Settings.Global
                     .getString(context.contentResolver, "radiostar_embed_server")
                     ?.trim()
                     ?.trimEnd('/')
                     ?.takeIf { it.isNotEmpty() }
+                ?: com.metrolist.music.constants.RADIOSTAR_DEFAULT_SERVER
 
         private data class PoolSong(
             val id: String,

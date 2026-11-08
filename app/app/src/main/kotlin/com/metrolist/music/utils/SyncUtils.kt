@@ -220,6 +220,7 @@ internal fun setVideoIdUpdatesForAddedSongs(
 class SyncUtils @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: MusicDatabase,
+    private val radioStarSync: com.metrolist.music.recommend.RadioStarSync,
 ) {
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         if (throwable !is CancellationException) {
@@ -712,6 +713,12 @@ class SyncUtils @Inject constructor(
     }
 
     private suspend fun executeLikeSong(s: SongEntity) = withContext(Dispatchers.IO) {
+        val dbSong = database.song(s.id).firstOrNull()
+        val artists = dbSong?.artists?.joinToString { a -> a.name } ?: ""
+        // Own-server reactions work signed out; the YouTube mirror inside
+        // RadioStarSync is skipped for likes because it runs below.
+        radioStarSync.recordReaction(s, artists, if (s.liked) 1 else 0)
+
         if (!isLoggedIn()) {
             Timber.w("Skipping likeSong - user not logged in")
             return@withContext
@@ -725,15 +732,20 @@ class SyncUtils @Inject constructor(
 
         if (lastfmSendLikes) {
             try {
-                val dbSong = database.song(s.id).firstOrNull()
                 LastFM.setLoveStatus(
-                    artist = dbSong?.artists?.joinToString { a -> a.name } ?: "",
+                    artist = artists,
                     track = s.title,
                     love = s.liked
                 )
             } catch (e: Exception) {
                 Timber.e(e, "Failed to update LastFM love status")
             }
+        }
+    }
+
+    fun dislikeSong(s: SongEntity, artist: String) {
+        syncScope.launch {
+            radioStarSync.toggleDislike(s, artist)
         }
     }
 
@@ -811,20 +823,45 @@ class SyncUtils @Inject constructor(
                     val remoteIds = remoteSongs.map { it.id }.toSet()
                     val advertisedCount = page.playlist.songCountText?.filter { it.isDigit() }?.toIntOrNull()
                     val isComplete = hasCompleteLikedSongsResponse(remoteSongs.size, advertisedCount)
-                    val removed =
+                    val remoteRemovals =
                         if (isComplete) {
                             idsRemovedRemotely(database.likedSongIds(), readSyncSnapshot(SNAPSHOT_LIKED_SONGS), remoteIds)
                         } else {
                             Timber.w("Liked-song response was incomplete (${remoteSongs.size}/$advertisedCount); skipping remote removals")
                             emptySet()
                         }
+                    // RadioStar reactions are authoritative: a like that exists
+                    // only on our server must survive YouTube's snapshot.
+                    val protectedBySync =
+                        remoteRemovals.filter { radioStarSync.likedByReaction(it) }.toSet()
+                    val removed = remoteRemovals - protectedBySync
                     val songIdsWithoutArtists = findSongIdsWithoutArtists(remoteIds)
+                    val serverDisliked =
+                        remoteSongs.mapNotNull { song ->
+                            val artistNames = song.artists.joinToString(", ") { it.name }
+                            if (radioStarSync.ratingFor(song.id, song.title, artistNames) == -1) {
+                                song.id
+                            } else {
+                                null
+                            }
+                        }.toSet()
                     val now = LocalDateTime.now()
+                    val importedLikes = mutableListOf<Pair<SongEntity, String>>()
 
                     database.withTransaction {
                         removed.forEach { id -> songEntity(id)?.let { update(it.copy(liked = false, likedDate = null)) } }
                         remoteSongs.forEachIndexed { index, song ->
                             val dbSong = songEntity(song.id)
+                            if (song.id in serverDisliked) {
+                                if (dbSong?.liked == true) {
+                                    update(dbSong.copy(liked = false, likedDate = null))
+                                }
+                                return@forEachIndexed
+                            }
+                            val artistNames = song.artists.joinToString(", ") { it.name }
+                            if (dbSong?.liked != true) {
+                                importedLikes += song.toMediaMetadata().toSongEntity() to artistNames
+                            }
                             val timestamp = dbSong?.likedDate ?: now.minusSeconds(index.toLong())
                             val isVideoSong = song.isVideoSong
                             if (dbSong == null) {
@@ -840,6 +877,10 @@ class SyncUtils @Inject constructor(
                                 }
                             }
                         }
+                    }
+
+                    importedLikes.forEach { (song, artists) ->
+                        radioStarSync.recordImportedReaction(song, artists, 1)
                     }
 
                     if (isComplete) writeSyncSnapshot(SNAPSHOT_LIKED_SONGS, remoteIds)

@@ -20,6 +20,12 @@ object ListenTogetherServers {
     private const val ServersJson = """
         [
           {
+            "name": "RadioStar",
+            "url": "wss://radiostarserver.nzrs.link/ws",
+            "location": "Self-hosted",
+            "operator": "nzrs"
+          },
+          {
             "name": "The Meowery",
             "url": "wss://metroserverx.meowery.eu/ws",
             "location": "Poland",

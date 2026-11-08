@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -56,9 +57,19 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.constants.ListenTogetherServerUrlKey
+import com.metrolist.music.constants.RADIOSTAR_DEFAULT_SERVER
+import com.metrolist.music.constants.RADIOSTAR_LISTEN_TOGETHER_URL
+import com.metrolist.music.constants.RADIOSTAR_SHARE_BASE_URL
 import com.metrolist.music.constants.RadioStarArtworkOpacityKey
 import com.metrolist.music.constants.RadioStarServerKey
+import com.metrolist.music.constants.RadioStarShareBaseUrlKey
+import com.metrolist.music.constants.RadioStarSyncEnabledKey
+import com.metrolist.music.constants.RadioStarSyncLastResultKey
+import com.metrolist.music.constants.RadioStarSyncMirrorScrobblerKey
+import com.metrolist.music.constants.RadioStarSyncMirrorYoutubeKey
 import com.metrolist.music.recommend.RadioStarRefreshBus
+import com.metrolist.music.recommend.RadioStarSync
 import com.metrolist.music.recommend.ServerAuthClient
 import com.metrolist.music.recommend.ServerAuthStore
 import com.metrolist.music.ui.component.IconButton
@@ -76,6 +87,8 @@ import kotlinx.coroutines.launch
 @InstallIn(SingletonComponent::class)
 interface RadioStarAuthEntryPoint {
     fun serverAuthStore(): ServerAuthStore
+
+    fun radioStarSync(): RadioStarSync
 }
 
 private enum class AuthMode {
@@ -94,7 +107,28 @@ fun RadioStarScreen(navController: NavController) {
                 RadioStarAuthEntryPoint::class.java,
             ).serverAuthStore()
         }
+    val radioStarSync =
+        remember {
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                RadioStarAuthEntryPoint::class.java,
+            ).radioStarSync()
+        }
     val scope = rememberCoroutineScope()
+    var syncEnabled by rememberPreference(RadioStarSyncEnabledKey, false)
+    var syncMirrorYoutube by rememberPreference(RadioStarSyncMirrorYoutubeKey, true)
+    var syncMirrorScrobbler by rememberPreference(RadioStarSyncMirrorScrobblerKey, true)
+    val lastSyncResult by rememberPreference(RadioStarSyncLastResultKey, "")
+    var shareBaseUrl by rememberPreference(RadioStarShareBaseUrlKey, RADIOSTAR_SHARE_BASE_URL)
+    var listenTogetherUrl by rememberPreference(ListenTogetherServerUrlKey, RADIOSTAR_LISTEN_TOGETHER_URL)
+    var hasPassphrase by remember { mutableStateOf(false) }
+    var syncBusy by remember { mutableStateOf(false) }
+    var showPassphraseDialog by remember { mutableStateOf(false) }
+    var showShareDialog by remember { mutableStateOf(false) }
+    var showListenTogetherDialog by remember { mutableStateOf(false) }
+    var infraDraft by remember { mutableStateOf("") }
+    var passphraseDraft by remember { mutableStateOf("") }
+    var passphraseError by remember { mutableStateOf<String?>(null) }
     val globalServer =
         remember {
             Settings.Global
@@ -103,7 +137,7 @@ fun RadioStarScreen(navController: NavController) {
                 ?.trimEnd('/')
                 .orEmpty()
         }
-    var server by rememberPreference(RadioStarServerKey, globalServer)
+    var server by rememberPreference(RadioStarServerKey, globalServer.ifBlank { RADIOSTAR_DEFAULT_SERVER })
     var artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
     val artworkSlider = rememberSliderState(value = artworkOpacity)
     var authStatus by remember { mutableStateOf<ServerAuthStore.Status?>(null) }
@@ -114,6 +148,12 @@ fun RadioStarScreen(navController: NavController) {
 
     LaunchedEffect(server) {
         authStatus = auth.status(server)
+        hasPassphrase = runCatching { radioStarSync.hasPassphrase() }.getOrDefault(false)
+    }
+    LaunchedEffect(showPassphraseDialog) {
+        if (showPassphraseDialog) {
+            hasPassphrase = runCatching { radioStarSync.hasPassphrase() }.getOrDefault(false)
+        }
     }
     LaunchedEffect(artworkOpacity) {
         if (artworkSlider.value != artworkOpacity) {
@@ -176,6 +216,138 @@ fun RadioStarScreen(navController: NavController) {
                         icon = painterResource(R.drawable.sync),
                         title = { Text(stringResource(R.string.radiostar_refresh_now)) },
                         onClick = { RadioStarRefreshBus.request() },
+                    ),
+                ),
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_sync),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.sync),
+                        title = { Text(stringResource(R.string.radiostar_sync_enable)) },
+                        description = {
+                            Text(
+                                when {
+                                    !syncEnabled -> stringResource(R.string.radiostar_sync_enable_desc)
+                                    lastSyncResult.isNotBlank() -> lastSyncResult
+                                    else -> stringResource(R.string.radiostar_sync_enable_desc)
+                                },
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = syncEnabled,
+                                onCheckedChange = {
+                                    syncEnabled = it
+                                    scope.launch {
+                                        runCatching { radioStarSync.reschedule() }
+                                        if (it) {
+                                            syncBusy = true
+                                            runCatching { radioStarSync.syncNow(force = true) }
+                                            syncBusy = false
+                                        }
+                                    }
+                                },
+                            )
+                        },
+                        onClick = {
+                            val next = !syncEnabled
+                            syncEnabled = next
+                            scope.launch {
+                                runCatching { radioStarSync.reschedule() }
+                                if (next) {
+                                    syncBusy = true
+                                    runCatching { radioStarSync.syncNow(force = true) }
+                                    syncBusy = false
+                                }
+                            }
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.lock),
+                        title = { Text(stringResource(R.string.radiostar_sync_passphrase)) },
+                        description = {
+                            Text(
+                                if (hasPassphrase) {
+                                    stringResource(R.string.radiostar_sync_passphrase_set)
+                                } else {
+                                    stringResource(R.string.radiostar_sync_passphrase_missing)
+                                },
+                            )
+                        },
+                        onClick = {
+                            infraDraft = ""
+                            showPassphraseDialog = true
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.sync),
+                        title = { Text(stringResource(R.string.radiostar_sync_now)) },
+                        description = { Text(if (syncBusy) "…" else lastSyncResult) },
+                        onClick = {
+                            if (!syncBusy) {
+                                scope.launch {
+                                    syncBusy = true
+                                    runCatching { radioStarSync.syncNow(force = true) }
+                                    syncBusy = false
+                                }
+                            }
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.favorite),
+                        title = { Text(stringResource(R.string.radiostar_sync_mirror_youtube)) },
+                        description = { Text(stringResource(R.string.radiostar_sync_mirror_youtube_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = syncMirrorYoutube,
+                                onCheckedChange = { syncMirrorYoutube = it },
+                            )
+                        },
+                        onClick = { syncMirrorYoutube = !syncMirrorYoutube },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.thumb_down),
+                        title = { Text(stringResource(R.string.radiostar_sync_mirror_scrobbler)) },
+                        description = { Text(stringResource(R.string.radiostar_sync_mirror_scrobbler_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = syncMirrorScrobbler,
+                                onCheckedChange = { syncMirrorScrobbler = it },
+                            )
+                        },
+                        onClick = { syncMirrorScrobbler = !syncMirrorScrobbler },
+                    ),
+                ),
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_infra),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.share),
+                        title = { Text(stringResource(R.string.radiostar_share_base)) },
+                        description = { Text(shareBaseUrl) },
+                        onClick = {
+                            infraDraft = shareBaseUrl
+                            showShareDialog = true
+                        },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.cloud),
+                        title = { Text(stringResource(R.string.radiostar_listen_together_server)) },
+                        description = { Text(listenTogetherUrl) },
+                        onClick = {
+                            infraDraft = listenTogetherUrl
+                            showListenTogetherDialog = true
+                        },
                     ),
                 ),
         )
@@ -284,6 +456,137 @@ fun RadioStarScreen(navController: NavController) {
             },
             dismissButton = {
                 TextButton(onClick = { showServerDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showPassphraseDialog) {
+        AlertDialog(
+            onDismissRequest = { showPassphraseDialog = false },
+            title = { Text(stringResource(R.string.radiostar_sync_passphrase)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.radiostar_sync_passphrase_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = passphraseDraft,
+                        onValueChange = {
+                            passphraseDraft = it
+                            passphraseError = null
+                        },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    passphraseError?.let {
+                        Text(
+                            text = it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = passphraseDraft.length >= 8 && !syncBusy,
+                    onClick = {
+                        syncBusy = true
+                        passphraseError = null
+                        scope.launch {
+                            val result =
+                                runCatching { radioStarSync.setPassphrase(passphraseDraft) }
+                                    .getOrElse {
+                                        RadioStarSync.Result(
+                                            false,
+                                            it.message ?: "Could not set the passphrase",
+                                        )
+                                    }
+                            syncBusy = false
+                            if (result.ok) {
+                                hasPassphrase = true
+                                showPassphraseDialog = false
+                            } else {
+                                passphraseError = result.message
+                            }
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.radiostar_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPassphraseDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showShareDialog) {
+        AlertDialog(
+            onDismissRequest = { showShareDialog = false },
+            title = { Text(stringResource(R.string.radiostar_share_base)) },
+            text = {
+                OutlinedTextField(
+                    value = infraDraft,
+                    onValueChange = { infraDraft = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        shareBaseUrl = infraDraft.trim().trimEnd('/')
+                        showShareDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.radiostar_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showShareDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (showListenTogetherDialog) {
+        AlertDialog(
+            onDismissRequest = { showListenTogetherDialog = false },
+            title = { Text(stringResource(R.string.radiostar_listen_together_server)) },
+            text = {
+                OutlinedTextField(
+                    value = infraDraft,
+                    onValueChange = { infraDraft = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val value = infraDraft.trim()
+                        if (value.isNotBlank()) {
+                            listenTogetherUrl = value
+                        }
+                        showListenTogetherDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.radiostar_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showListenTogetherDialog = false }) {
                     Text(stringResource(android.R.string.cancel))
                 }
             },

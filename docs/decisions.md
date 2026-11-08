@@ -561,6 +561,37 @@ test; the database rows, artist maps and generation path are verified.
   but open registration, email verification and a shared cache namespace are
   deliberately out of scope until a second user exists.
 
+## D-22 — Server-synced settings and reactions
+
+**Status:** implemented; server schema 2, client tests and server tests pass.
+
+- The RadioStar server account is the sync transport. `/sync/pull`,
+  `/sync/push`, `/sync/status` and `DELETE /sync` reuse the existing device
+  Bearer tokens; there is no second login.
+- One generic item table stores `config` and `reaction` rows with a monotonic
+  sequence. Writes are last-writer-wins on `(updated_at_ms, device_id)`;
+  losing rows return as conflicts and deletions are tombstones.
+- Config covers the app's DataStore preferences except device-local or
+  derived values (playback volume, alarm entries, import checkpoints,
+  generated profiles, the sync server URL itself). Secret names (tokens,
+  API keys, sessions, cookies) are encrypted on the phone with PBKDF2 +
+  AES/GCM and a user passphrase. Only ciphertext reaches the server; the
+  passphrase is protected by the Android Keystore.
+- Reactions are a JSONL log keyed by YouTube video id, or title/artist for
+  scrobbler-only tracks. This adds dislikes without a Room migration and keeps
+  `song.liked` as the UI source. The server holds the authoritative reaction;
+  local edits push immediately-ish and remote edits update `song.liked`.
+- Last.fm mirrors love/unlove; ListenBrainz and compatible servers use
+  love/hate feedback after resolving a recording MBID. Reads pull loved
+  tracks / feedback back into the local store. A dislike becomes unlove on
+  Last.fm because its API has no dislike.
+- Outbound listen submission has its own switch. Off means RadioStar sends no
+  scrobbles but still mirrors reactions and imports history, so an external
+  scrobbler can run in parallel.
+- Default server URL is `http://localhost:8787`; it is a placeholder the user
+  overrides. Default share-link and Listen Together URLs point at
+  `radiostarserver.nzrs.link` and are editable in Settings.
+
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo
   checkpoint is a separate artefact).

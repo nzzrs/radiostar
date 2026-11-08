@@ -33,6 +33,7 @@ import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
+import com.metrolist.music.recommend.RadioStarSync
 import com.metrolist.music.recommend.ScrobblerSync
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
@@ -70,6 +71,9 @@ class App :
 
     @Inject
     lateinit var radioStarRepository: RadioStarPlaylistRepository
+
+    @Inject
+    lateinit var radioStarSync: RadioStarSync
 
     override fun onCreate() {
         super.onCreate()
@@ -109,6 +113,8 @@ class App :
         applicationScope.launch(Dispatchers.IO) {
             ScrobblerSync.syncIfDue(this@App)
             ScrobblerSync.reschedule(this@App)
+            radioStarSync.syncNow()
+            radioStarSync.reschedule()
         }
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
