@@ -72,9 +72,9 @@ flowchart LR
 
 - **YouTube Music / InnerTube** is the only audio source. Audio is streamed,
   never stored or redistributed.
-- **Embedding server** receives title/artist text only, over the user's LAN or
-  Tailscale. It is optional; playback and local analysis still work without
-  it.
+- **Embedding server** receives title/artist text only, over HTTPS through
+  Cloudflare Tunnel (or Tailscale). It is optional; playback and local analysis
+  still work without it.
 - **Scrobblers** have two independent roles:
   - **Listens import** pulls history into the phone.
   - **Scrobble service** sends new listens to a chosen destination.
@@ -100,7 +100,7 @@ flowchart TB
     end
 
     subgraph Laptop["Laptop (optional compute)"]
-        SRV["Embedding server<br/>server/app.py :8787"]
+        SRV["Embedding server<br/>server/app.py :8787<br/>device tokens"]
         CACHE[("SQLite embedding cache")]
     end
 
@@ -515,7 +515,7 @@ flowchart TB
     end
 
     subgraph Laptop["Laptop (optional)"]
-        SRV["server/app.py<br/>0.0.0.0:8787"]
+        SRV["server/app.py<br/>127.0.0.1:8787"]
         CACHE[("SQLite embedding cache")]
     end
 
@@ -527,7 +527,7 @@ flowchart TB
     APK --- DS
     APK --- KS
     APK --> TTS
-    APK -->|"HTTP over LAN or Tailscale<br/>metadata only"| SRV
+    APK -->|"HTTPS, device token<br/>metadata only"| SRV
     SRV --- CACHE
     APK -->|"HTTPS"| YT
     APK -->|"HTTPS, optional"| SC
@@ -536,8 +536,9 @@ flowchart TB
 Deployment notes:
 
 - Release APKs are unsigned in this repository; no store distribution.
-- The laptop server has no authentication and is intended for the user's own
-  LAN or Tailscale network.
+- The laptop server requires authentication and is intended for the owner's
+  devices. It binds loopback and is published through Cloudflare Tunnel or
+  Tailscale with HTTPS.
 - Without the laptop, playback, DJ and local analysis work; new text-embedding
   playlists wait until the server is reachable.
 - Scrobble tokens stay on the phone. The DJ API key is additionally encrypted.
