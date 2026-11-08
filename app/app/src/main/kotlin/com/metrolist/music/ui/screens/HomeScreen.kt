@@ -111,6 +111,16 @@ import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarArtworkOpacityKey
+import com.metrolist.music.constants.RadioStarDjAiKey
+import com.metrolist.music.constants.RadioStarDjKey
+import com.metrolist.music.constants.RadioStarDjFarKey
+import com.metrolist.music.constants.RadioStarDjKnownKey
+import com.metrolist.music.constants.RadioStarDjLikelyKey
+import com.metrolist.music.constants.RadioStarDjPersonaKey
+import com.metrolist.music.recommend.DjConfig
+import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
@@ -675,6 +685,28 @@ fun HomeScreen(
     val speedDialItems by viewModel.speedDialItems.collectAsStateWithLifecycle()
     val pinnedSpeedDialItems by viewModel.pinnedSpeedDialItems.collectAsStateWithLifecycle()
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
+    val radioStarCards by viewModel.radioStarCards.collectAsStateWithLifecycle()
+    var djPersona by rememberEnumPreference(RadioStarDjPersonaKey, DjPersona.CHERRY)
+    var djKnown by rememberEnumPreference(RadioStarDjKnownKey, DjPresence.SOMETIMES)
+    var djFar by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
+    var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
+    var showDjPanel by remember { mutableStateOf(false) }
+    var djAi by rememberPreference(RadioStarDjAiKey, false)
+    var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
+    val artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
+    val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
+    val djScope = rememberCoroutineScope()
+    val startDj: (DjConfig) -> Unit = { config ->
+        djScope.launch {
+            val songs = viewModel.buildDjQueue(config)
+            if (songs.isNotEmpty()) {
+                playerConnection.service?.playDjSession(
+                    songs.map { it.toMediaItem() },
+                    config.persona,
+                )
+            }
+        }
+    }
 
     // Official podcast API data
     val savedPodcastShows by viewModel.savedPodcastShows.collectAsStateWithLifecycle()
@@ -1196,6 +1228,40 @@ fun HomeScreen(
                         onValueUpdate = {
                             viewModel.toggleChip(it)
                         },
+                    )
+                }
+
+                item(key = "radiostar_shelf") {
+                    RadioStarShelf(
+                        cards = radioStarCards,
+                        artworkOpacity = artworkOpacity,
+                        onOpen = { id -> navController.navigate("local_playlist/$id") },
+                        onPlay = { card ->
+                            djScope.launch {
+                                val songs =
+                                    database
+                                        .playlistSongs(card.id)
+                                        .first()
+                                        .map { it.song.toMediaItem() }
+                                if (songs.isNotEmpty()) {
+                                    playerConnection.playQueue(
+                                        ListQueue(title = card.title, items = songs),
+                                    )
+                                }
+                            }
+                        },
+                        djContent =
+                            if (aiDjEnabled) {
+                                {
+                                    DjHomeCard(
+                                        config = djConfig,
+                                        onStart = { startDj(djConfig) },
+                                        onSettings = { showDjPanel = true },
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                     )
                 }
 
@@ -2609,5 +2675,24 @@ fun HomeScreen(
                 },
             )
         }
+    }
+
+    if (aiDjEnabled && showDjPanel) {
+        DjPanelDialog(
+            config = djConfig,
+            aiEnabled = djAi,
+            onAiChange = { djAi = it },
+            onConfigChange = { config ->
+                djPersona = config.persona
+                djKnown = config.known
+                djFar = config.far
+                djLikely = config.likely
+            },
+            onDismiss = { showDjPanel = false },
+            onStart = {
+                showDjPanel = false
+                startDj(djConfig)
+            },
+        )
     }
 }

@@ -994,4 +994,7 @@
     <string name="stream_source_web_creator_desc">Creator web client.</string>
     <string name="top_result">Top result</string>
     <string name="other">Other</string>
+    <string name="radiostar_artwork">Playlist artwork</string>
+    <string name="radiostar_artwork_desc">Generated from the tracks in each list. Lower it to keep the cards discreet.</string>
+    <string name="radiostar_dj_settings">DJ settings</string>
 </resources>

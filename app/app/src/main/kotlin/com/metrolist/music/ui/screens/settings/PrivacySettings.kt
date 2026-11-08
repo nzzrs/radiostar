@@ -222,6 +222,11 @@ fun PrivacySettings(
             title = stringResource(R.string.misc),
             items = listOf(
                 Material3SettingsItem(
+                    icon = painterResource(R.drawable.history),
+                    title = { Text(stringResource(R.string.radiostar_telemetry)) },
+                    onClick = { navController.navigate("settings/telemetry") },
+                ),
+                Material3SettingsItem(
                     icon = painterResource(R.drawable.screenshot),
                     title = { Text(stringResource(R.string.disable_screenshot)) },
                     description = { Text(stringResource(R.string.disable_screenshot_desc)) },

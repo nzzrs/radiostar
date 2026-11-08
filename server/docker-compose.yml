@@ -1,0 +1,15 @@
+services:
+  embeddings:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: radiostar-embed:local
+    container_name: radiostar-embed
+    ports:
+      - "8787:8787"
+    volumes:
+      # Reuse the checkpoint already downloaded by the project venv instead of
+      # downloading 1.8 GB again inside the image.
+      - /tmp/opencode/clap-venv/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt:/usr/local/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt:ro
+      - ../spike/clap/out:/app/spike/clap/out
+    restart: unless-stopped

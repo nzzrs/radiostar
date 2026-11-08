@@ -41,6 +41,8 @@ import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.models.SimilarRecommendation
+import com.metrolist.music.recommend.DjConfig
+import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.ui.screens.wrapped.WrappedAudioService
 import com.metrolist.music.ui.screens.wrapped.WrappedManager
 import com.metrolist.music.utils.NetworkConnectivityObserver
@@ -96,7 +98,11 @@ class HomeViewModel @Inject constructor(
     val wrappedManager: WrappedManager,
     private val wrappedAudioService: WrappedAudioService,
     private val networkConnectivity: NetworkConnectivityObserver,
+    private val radioStarRepository: RadioStarPlaylistRepository,
 ) : ViewModel() {
+    val radioStarCards = radioStarRepository.cards
+
+    suspend fun buildDjQueue(config: DjConfig) = radioStarRepository.buildDjQueue(config)
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
     val isRandomizing = MutableStateFlow(false)
@@ -704,6 +710,10 @@ class HomeViewModel @Inject constructor(
             } else {
                 load()
             }
+            // Pulling Home also asks for a fresh set of generated playlists.
+            // The repository keeps the stamps and skips this when the server
+            // is unreachable, so the spinner still finishes quickly.
+            radioStarRepository.refreshIfDue(force = true)
             isRefreshing.value = false
         }
         // Run sync when user manually refreshes
@@ -718,6 +728,12 @@ class HomeViewModel @Inject constructor(
     }
 
     init {
+        // Generate today's/this week's playlists in the background. This never
+        // touches the playback queue; it only writes local playlists.
+        viewModelScope.launch(Dispatchers.IO) {
+            radioStarRepository.refreshIfDue()
+        }
+
         // Run sync in separate coroutine with cooldown to avoid blocking UI
         viewModelScope.launch(Dispatchers.IO) {
             syncUtils.tryAutoSync()

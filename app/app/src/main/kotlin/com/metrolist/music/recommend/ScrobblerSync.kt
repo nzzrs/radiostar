@@ -1,0 +1,130 @@
+/**
+ * Metrolist Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ */
+
+package com.metrolist.music.recommend
+
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import com.metrolist.music.constants.LastMonthlyMostPlaylistSyncKey
+import com.metrolist.music.constants.LastWeeklyMostPlaylistSyncKey
+import com.metrolist.music.constants.ScrobblerApiKeyKey
+import com.metrolist.music.constants.ScrobblerBaseUrlKey
+import com.metrolist.music.constants.ScrobblerLastFmUserKey
+import com.metrolist.music.constants.ScrobblerLastSyncKey
+import com.metrolist.music.constants.ScrobblerListenBrainzUserKey
+import com.metrolist.music.constants.ScrobblerServiceKey
+import com.metrolist.music.constants.ScrobblerSyncFrequencyKey
+import com.metrolist.music.constants.ScrobblerTokenKey
+import com.metrolist.music.utils.dataStore
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+
+enum class ScrobblerSyncFrequency(
+    val id: String,
+    val label: String,
+    val intervalMs: Long,
+) {
+    STARTUP("startup", "At startup", 0L),
+    FIFTEEN_MINUTES("15m", "Every 15 minutes", 15 * 60_000L),
+    HOUR("1h", "Every hour", 60 * 60_000L),
+    SIX_HOURS("6h", "Every 6 hours", 6 * 60 * 60_000L),
+    DAY("1d", "Every day", 24 * 60 * 60_000L),
+    WEEK("1w", "Every week", 7 * 24 * 60 * 60_000L),
+    OFF("off", "Off", -1L),
+}
+
+class ScrobblerSyncWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        ScrobblerSync.syncIfDue(applicationContext)
+        return Result.success()
+    }
+}
+
+object ScrobblerSync {
+    private const val WORK_NAME = "radiostar-scrobbler-sync"
+    private const val MIN_PERIODIC_INTERVAL_MS = 15 * 60_000L
+
+    suspend fun syncIfDue(context: Context) =
+        withContext(Dispatchers.IO) {
+            val prefs = context.dataStore.data.first()
+            val service =
+                ScrobblerService.values().firstOrNull { it.id == prefs[ScrobblerServiceKey] }
+                    ?: return@withContext
+            if (service == ScrobblerService.NONE) return@withContext
+            val frequency =
+                ScrobblerSyncFrequency.values().firstOrNull { it.id == prefs[ScrobblerSyncFrequencyKey] }
+                    ?: ScrobblerSyncFrequency.SIX_HOURS
+            if (frequency == ScrobblerSyncFrequency.OFF) return@withContext
+            val last = prefs[ScrobblerLastSyncKey] ?: 0L
+            val now = System.currentTimeMillis()
+            if (frequency.intervalMs > 0L && now - last < frequency.intervalMs) return@withContext
+            val config =
+                ScrobblerConfig(
+                    service = service,
+                    lastFmUser = prefs[ScrobblerLastFmUserKey].orEmpty(),
+                    listenBrainzUser = prefs[ScrobblerListenBrainzUserKey].orEmpty(),
+                    baseUrl = prefs[ScrobblerBaseUrlKey].orEmpty(),
+                    token = prefs[ScrobblerTokenKey].orEmpty(),
+                    apiKey = prefs[ScrobblerApiKeyKey].orEmpty(),
+                )
+            val result = ScrobblerImporter.import(context, config)
+            if (result.complete) {
+                context.dataStore.edit {
+                    it[ScrobblerLastSyncKey] = now
+                    it[LastWeeklyMostPlaylistSyncKey] = 0L
+                    it[LastMonthlyMostPlaylistSyncKey] = 0L
+                }
+                RadioStarRefreshBus.request()
+            }
+        }
+
+    /**
+     * WorkManager is the only scheduler that keeps working after the process
+     * dies. Its shortest periodic interval is 15 minutes, which is exactly the
+     * shortest option exposed in Settings.
+     */
+    suspend fun reschedule(context: Context) {
+        val prefs = context.dataStore.data.first()
+        val service = prefs[ScrobblerServiceKey] ?: ScrobblerService.NONE.id
+        val frequencyId = prefs[ScrobblerSyncFrequencyKey] ?: ScrobblerSyncFrequency.SIX_HOURS.id
+        val frequency =
+            ScrobblerSyncFrequency.values().firstOrNull { it.id == frequencyId }
+                ?: ScrobblerSyncFrequency.SIX_HOURS
+        val manager = WorkManager.getInstance(context)
+        if (service == ScrobblerService.NONE.id ||
+            frequency == ScrobblerSyncFrequency.OFF ||
+            frequency == ScrobblerSyncFrequency.STARTUP
+        ) {
+            manager.cancelUniqueWork(WORK_NAME)
+            return
+        }
+        val interval = frequency.intervalMs.coerceAtLeast(MIN_PERIODIC_INTERVAL_MS)
+        val request =
+            PeriodicWorkRequestBuilder<ScrobblerSyncWorker>(interval, TimeUnit.MILLISECONDS)
+                .setConstraints(
+                    Constraints
+                        .Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                ).build()
+        manager.enqueueUniquePeriodicWork(
+            WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request,
+        )
+    }
+}

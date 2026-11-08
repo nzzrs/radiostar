@@ -32,6 +32,8 @@ import com.metrolist.music.constants.*
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
+import com.metrolist.music.recommend.RadioStarPlaylistRepository
+import com.metrolist.music.recommend.ScrobblerSync
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.InnerTubeXPlayer
@@ -66,6 +68,9 @@ class App :
     @ApplicationScope
     lateinit var applicationScope: CoroutineScope
 
+    @Inject
+    lateinit var radioStarRepository: RadioStarPlaylistRepository
+
     override fun onCreate() {
         super.onCreate()
 
@@ -90,6 +95,21 @@ class App :
         // Plant logging before extraction services initialize.
         Timber.plant(Timber.DebugTree())
         InnerTubeXPlayer.initialize(this)
+
+        // Build the daily/weekly playlists in the background. This only writes
+        // local playlist rows; it never changes the playback queue.
+        applicationScope.launch(Dispatchers.IO) {
+            // Check periodically so a session left open past 06:00 rebuilds
+            // the daily lists without waiting for a restart.
+            while (true) {
+                radioStarRepository.refreshIfDue()
+                delay(10 * 60_000L)
+            }
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            ScrobblerSync.syncIfDue(this@App)
+            ScrobblerSync.reschedule(this@App)
+        }
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
         applicationScope.launch(Dispatchers.IO) {

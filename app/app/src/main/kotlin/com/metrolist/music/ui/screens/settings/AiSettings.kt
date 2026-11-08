@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +30,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -59,7 +62,9 @@ import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.TextFieldDialog
+import com.metrolist.music.recommend.AiProviderClient
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -178,6 +183,9 @@ fun AiSettings(navController: NavController) {
     var showModelDialog by rememberSaveable { mutableStateOf(false) }
     var showCustomModelInput by rememberSaveable { mutableStateOf(false) }
     var showSystemPromptDialog by rememberSaveable { mutableStateOf(false) }
+    var testingConnection by remember { mutableStateOf(false) }
+    var connectionResult by remember { mutableStateOf<String?>(null) }
+    val aiScope = rememberCoroutineScope()
 
     if (showProviderHelpDialog) {
         AlertDialog(
@@ -404,23 +412,22 @@ fun AiSettings(navController: NavController) {
     }
 
     if (showModelDialog) {
-        EnumDialog(
-            onDismiss = { showModelDialog = false },
+        AiModelPickerDialog(
+            provider = aiProvider,
+            baseUrl = openRouterBaseUrl,
+            apiKey = openRouterApiKey,
+            current = openRouterModel,
+            fallbackModels = commonModels,
             onSelect = {
-                if (it == "custom_input") {
-                    showCustomModelInput = true
-                    showModelDialog = false
-                } else {
-                    openRouterModel = it
-                    showModelDialog = false
-                }
+                openRouterModel = it
+                connectionResult = null
+                showModelDialog = false
             },
-            title = stringResource(R.string.ai_model),
-            current = if (openRouterModel in commonModels) openRouterModel else "custom_input",
-            values = commonModels + "custom_input",
-            valueText = {
-                if (it == "custom_input") "Custom" else it
+            onCustom = {
+                showModelDialog = false
+                showCustomModelInput = true
             },
+            onDismiss = { showModelDialog = false },
         )
     }
 
@@ -586,6 +593,43 @@ fun AiSettings(navController: NavController) {
                                 title = { Text(stringResource(R.string.ai_model)) },
                                 description = { Text(openRouterModel.ifBlank { stringResource(R.string.not_set) }) },
                                 onClick = { showModelDialog = true },
+                            ),
+                        )
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.sync),
+                                title = { Text(stringResource(R.string.ai_test_connection)) },
+                                description =
+                                    if (connectionResult != null) {
+                                        { Text(connectionResult.orEmpty()) }
+                                    } else {
+                                        null
+                                    },
+                                trailingContent = {
+                                    if (testingConnection) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    if (!testingConnection) {
+                                        testingConnection = true
+                                        connectionResult = null
+                                        aiScope.launch {
+                                            val result =
+                                                AiProviderClient.testConnection(
+                                                    provider = aiProvider,
+                                                    baseUrl = openRouterBaseUrl,
+                                                    model = openRouterModel,
+                                                    apiKey = openRouterApiKey,
+                                                )
+                                            connectionResult = result.message
+                                            testingConnection = false
+                                        }
+                                    }
+                                },
                             ),
                         )
                     }

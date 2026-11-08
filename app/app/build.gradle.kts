@@ -23,6 +23,22 @@ val debugKeyPassword = System.getenv("METROLIST_DEBUG_KEY_PASSWORD")?.takeIf { i
 val persistentDebugKeystoreFile = file("persistent-debug.keystore")
 val workflowDebugKeystoreFile = debugKeystorePathOverride?.let(::file)
 
+val releaseKeystoreProperties = Properties()
+val releaseKeystorePropertiesFile = rootProject.file("key.properties")
+if (releaseKeystorePropertiesFile.exists()) {
+    releaseKeystorePropertiesFile.inputStream().use(releaseKeystoreProperties::load)
+}
+val releaseStoreFile =
+    releaseKeystoreProperties.getProperty("storeFile")
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::file)
+        ?: System.getenv("STORE_FILE")?.takeIf { it.isNotBlank() }?.let(::file)
+val releaseSigningConfigured =
+    releaseStoreFile != null &&
+        releaseKeystoreProperties.getProperty("storePassword")?.isNotBlank() == true &&
+        releaseKeystoreProperties.getProperty("keyAlias")?.isNotBlank() == true &&
+        releaseKeystoreProperties.getProperty("keyPassword")?.isNotBlank() == true
+
 plugins {
     id("com.android.application")
     alias(libs.plugins.hilt)
@@ -40,12 +56,12 @@ android {
         applicationId = applicationIdOverride ?: baseApplicationId
         minSdk = 26
         targetSdk = 36
-        versionCode = 153
-        versionName = "13.7.0"
+        versionCode = 154
+        versionName = "0.9.0"
         val baseVersionName = requireNotNull(versionName)
         buildConfigField("String", "BASE_VERSION_NAME", "\"$baseVersionName\"")
         buildCommit?.let { versionName = "$baseVersionName+$it" }
-        resValue("string", "app_name", appNameOverride ?: "Metrolist")
+        resValue("string", "app_name", appNameOverride ?: "RadioStar")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -105,10 +121,17 @@ android {
             keyPassword = debugKeyPassword
         }
         create("release") {
-            storeFile = file("keystore/release.keystore")
-            storePassword = System.getenv("STORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
+            if (releaseSigningConfigured) {
+                storeFile = releaseStoreFile
+                storePassword = releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias = releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword = releaseKeystoreProperties.getProperty("keyPassword")
+            } else {
+                storeFile = releaseStoreFile
+                storePassword = System.getenv("STORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
         }
         getByName("debug") {
             keyAlias = "androiddebugkey"
@@ -124,6 +147,9 @@ android {
             isShrinkResources = true
             isCrunchPngs = false
             isDebuggable = false
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -135,7 +161,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "Metrolist Debug")
+                resValue("string", "app_name", "RadioStar Debug")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile != null) {
@@ -261,6 +287,7 @@ dependencies {
     implementation(libs.activity)
     implementation(libs.hilt.navigation)
     implementation(libs.datastore)
+    implementation(libs.work.runtime)
 
     implementation(libs.compose.runtime)
     implementation(libs.compose.foundation)

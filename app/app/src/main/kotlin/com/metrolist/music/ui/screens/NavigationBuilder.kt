@@ -49,12 +49,16 @@ import com.metrolist.music.ui.screens.settings.AppearanceSettings
 import com.metrolist.music.ui.screens.settings.BackupAndRestore
 import com.metrolist.music.ui.screens.settings.ContentSettings
 import com.metrolist.music.ui.screens.settings.DarkMode
+import com.metrolist.music.ui.screens.settings.DjSettingsScreen
+import com.metrolist.music.ui.screens.settings.ListeningHistorySettings
 import com.metrolist.music.ui.screens.settings.PlayerSettings
 import com.metrolist.music.ui.screens.settings.PrivacySettings
 import com.metrolist.music.ui.screens.settings.RadioStarScreen
 import com.metrolist.music.ui.screens.settings.RomanizationSettings
+import com.metrolist.music.ui.screens.settings.ScrobblingSettings
 import com.metrolist.music.ui.screens.settings.SettingsScreen
 import com.metrolist.music.ui.screens.settings.StorageSettings
+import com.metrolist.music.ui.screens.settings.TelemetrySettingsScreen
 import com.metrolist.music.ui.screens.settings.ThemeScreen
 import com.metrolist.music.ui.screens.settings.UpdaterScreen
 import com.metrolist.music.ui.screens.settings.integrations.DiscordSettings
@@ -369,8 +373,24 @@ fun NavGraphBuilder.navigationBuilder(
         AiSettings(navController)
     }
 
+    composable("settings/dj") {
+        DjSettingsScreen(navController)
+    }
+
     composable("settings/radiostar") {
         RadioStarScreen(navController)
+    }
+
+    composable("settings/listening_history") {
+        ListeningHistorySettings(navController)
+    }
+
+    composable("settings/scrobbling") {
+        ScrobblingSettings(navController)
+    }
+
+    composable("settings/telemetry") {
+        TelemetrySettingsScreen(navController)
     }
 
     composable("settings/player") {

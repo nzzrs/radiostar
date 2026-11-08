@@ -238,7 +238,7 @@ kept (`app-foss-{debug,release}.apk`) so the measurement scripts do not change.
 Measured with `assembleFossDebug` and `assembleFossRelease` (R8, unsigned):
 
 ```
-debug   108.9 MB
+debug   111.1 MB
 release  83.4 MB
 ```
 
@@ -256,22 +256,14 @@ below.
 
 ## D-12 — Mix UI, DJ voice, energy ordering, ListenBrainz
 
-**Status:** UI and DJ verified on the A52s; import is unit-tested.
+**Status:** superseded by D-14 for the mix model. The DJ and ListenBrainz
+parts remain; the mix selector and automatic queue injection were removed.
 
-- **UI.** `Settings → RadioStar` (`settings/radiostar`) selects Discover, Jams
-  or Explore, toggles the DJ and energy ordering, edits the embedding server
-  URL and imports a ListenBrainz CSV. Preferences live in DataStore
-  (`RadioStarMixKey`, `RadioStarDjKey`, `RadioStarEnergyKey`,
-  `RadioStarServerKey`, `RadioStarHistoryKey`); the service mirrors them into
-  volatile fields so the player thread never blocks. The old
-  `radiostar_mix` / `radiostar_dj` / `radiostar_energy` globals remain as a
-  fallback when the DataStore key is absent, for automated tests. The screen
-  shows the effective global value until the user changes that control, then
-  the DataStore value takes over.
-  Verified on the A52s: all labels render, tapping Explore updates the
-  description, the service logs `mix=EXPLORE`, and every quality is 0.500
-  because Explore flattens affinity. Screenshot at
-  `/tmp/opencode/radiostar-ui.png`.
+- **UI.** `Settings → RadioStar` (`settings/radiostar`) keeps the DJ switch,
+  the embedding server URL and the ListenBrainz import.
+- The old `radiostar_mix` / `radiostar_energy` / `radiostar_harmony` globals
+  and the queue-injection path are gone: the app never changes what the user
+  chose to play.
 - **DJ.** Platform TTS (no bundled voice). It announces the next track 8 s
   before the transition, ducks the player to 22% while speaking and restores
   the effective volume afterwards. A 60 s partial wake lock keeps the utterance
@@ -312,6 +304,238 @@ Fixes found during device verification:
 - The slate log printed `mixKind()` (the global fallback) instead of the kind
   actually used, so an Explore slate appeared as Jams. It now prints the kind
   stored by `buildSlate`; the qualities already proved the real behaviour.
+
+## D-13 — On-device tempo and key
+
+**Status:** implemented, unit-tested and measured on the A52s.
+
+`TempoKeyEstimator` works on the same 10 s mono window the tap already emits,
+with no native library:
+
+- **Tempo.** 1024-point FFTs with a 512 hop feed a spectral-flux onset
+  envelope. The envelope is mean-subtracted, normalised, and autocorrelated
+  over 70–180 BPM with a 120 BPM log-normal prior and a `acf(lag) +
+  0.5 acf(2 lag)` comb term so the beat does not collapse to half time. The
+  winning lag is refined parabolically.
+- **Key.** 16384-point FFTs give 2.9 Hz bins, enough to put a 110 Hz bass note
+  on A rather than the neighbouring semitone. Magnitudes map to a chroma with
+  an 18% bass boost, then Pearson correlation against the Krumhansl-Kessler
+  major and minor profiles for all 12 roots. The margin between the best and
+  second profile is the confidence.
+- **Cost.** 294 ms for the first window of a track on the A52s. Tempo and key
+  are stable inside a track, so the service analyses the first window and
+  reuses the result; later windows only update RMS. A missing key is retried
+  on the next window.
+
+`AudioOrderer.harmonicPath` chains the part of the slate that already has a
+profile: starting from the playing track, it greedily picks the smallest
+tempo/key/RMS transition cost and puts the resulting path back into the slots
+those tracks already occupied. Candidates never played keep their score
+position. Camelot numbers give the key distance: same key 0, relative or
+adjacent 1, otherwise 2.
+
+The service persists each analysed profile to DataStore
+(`radiostarProfiles`). The playlist generator reads them and orders the slots
+that already have a profile as a harmonic path; if only RMS is known it uses
+the energy arc. Unknown candidates keep their DPP position.
+
+Tests: 26 cases across `MusicalKeyTest`, `TempoKeyEstimatorTest` and
+`AudioOrdererTest`; the recommendation suite is now 95 tests.
+
+**Limit.** Candidate tracks are text-only, so their tempo and key are unknown
+until they play. Harmony therefore matters most after a few listens; it cannot
+rank a cold candidate by BPM.
+
+## D-14 — Playlists, not playback modes
+
+**Status:** corrected after the user's device test. The earlier shelf treated
+Discover/Jams/Explore as modes that injected tracks into the queue; that was
+wrong and was removed.
+
+The app now has **playlists only**. It never adds, removes or reorders what the
+user chose to play.
+
+Six generated playlists:
+
+| Playlist | Window | Size | Refresh |
+| --- | --- | --- | --- |
+| Daily Discover / Jam / Explore | last 7 days | 30 | once per 06:00 playlist day |
+| Weekly Discover / Jam / Explore | last 30 days | 30 | once per ISO week |
+
+The AI DJ is **not** a playlist. It is a DJ session (D-15); DJ Cherry is a persona.
+
+- Ids are fixed (`LP_RS_DAILY_DISCOVER`, `LP_RS_WEEKLY_JAMS`, ...), so a
+  refresh replaces the same rows.
+- `PlaylistSchedule` is the only scheduling rule. A stamp in DataStore stores
+  the date/week that was successfully generated. Repeated app starts, Home
+  recreations and background checks do not regenerate anything; a failed run
+  leaves the stamp unchanged so the next attempt retries.
+- History comes from the local `event` table (most played in the window, with
+  an all-time fallback). Up to 5/8 anchor songs feed YouTube radio; the pool
+  plus the familiar history tracks is text-embedded by the laptop server.
+  The taste centroid is the normalised mean of the history vectors.
+- Discover and Explore exclude everything in the listening history. Jam keeps
+  the familiar tracks and their neighbours.
+- The existing DPP/artist cap builds each slate. Tracks are stored as normal
+  local playlists with song rows and artist maps, so the native playlist screen
+  plays them, and Library lists them because they are bookmarked.
+- Home shows **RadioStar playlists** cards; opening one navigates to
+  `local_playlist/{id}`. There is no play-on-shelf action and no queue edit.
+- `RadioStarPlaylistSpecsTest` covers the six ids, names, horizons and sizes;
+  `PlaylistScheduleTest` covers the once-per-period rule. The recommendation
+  suite is now 95 tests.
+
+Device evidence (A52s, laptop server on LAN):
+
+```
+RadioStarPlaylists: wrote Daily Discover tracks=30
+RadioStarPlaylists: wrote Daily Jam tracks=30
+RadioStarPlaylists: wrote Daily Explore tracks=30
+RadioStarPlaylists: wrote Weekly Discover tracks=30
+RadioStarPlaylists: wrote Weekly Jam tracks=30
+RadioStarPlaylists: wrote Weekly Explore tracks=30
+RadioStarPlaylists: generated daily=true weekly=true
+RadioStarPlaylists: cards=6
+```
+
+SQLite check on `song.db`:
+
+```
+LP_RS_DAILY_DISCOVER  30
+LP_RS_DAILY_JAMS      30
+LP_RS_DAILY_EXPLORE   30
+LP_RS_WEEKLY_*        30 each
+```
+
+**Limits.** Without the embedding server no new playlists are generated; the
+existing ones stay. A fresh install without listens shows the empty shelf. The
+visual shelf and opening a generated playlist still need the user's device
+test; the database rows, artist maps and generation path are verified.
+
+## D-15 — AI DJ is a session, not a playlist
+
+**Status:** implemented MVP in `feature/dj-cherry`; candidate pool reused from generated playlists.
+
+- DJ Cherry is a persona; the AI DJ session left the generated-playlist set
+  and the playlist shelf.
+- Home gets a smaller DJ block, separate from the playlists: a fruit emoji,
+  the selected persona name, and the line *Let the DJ play the beat*.
+- Tapping it opens the DJ panel, not a playlist. The panel has a radial wheel
+  with three dimensions and three stops each (Never / Sometimes / Frequently):
+  familiar tracks, tracks far from the taste, and tracks that look like the
+  taste. The same wheel selects the persona.
+- Personas are fruit characters with a short name, emoji and personality:
+  Cherry (default), Lemon, Berry, Banana, Strawberry, Coco. The persona changes
+  the TTS pitch/rate and the wording, not the recommendation math.
+- Starting the DJ is explicit. Only then does the app build an on-demand queue
+  and talk between tracks. Nothing changes the queue outside a DJ session.
+- Tapping the card always starts a fresh session and expands the player. The
+  queue is prepared paused; the DJ intro is spoken first and playback starts
+  only when the utterance finishes.
+- The DJ session uses an empty backing queue so autoplay cannot extend it with
+  unrelated tracks. Starting any other queue ends the session and stops the
+  speech.
+- The speaking overlay is visible only while the player sheet is expanded.
+  Swipe down or Back closes it for the current utterance without stopping the
+  voice or the session.
+- **AI DJ** is a top-level switch. Off removes the Home card, DJ panel, speaking
+  overlay, DJ settings and the DJ group in AI settings. No announcement runs.
+- The DJ card starts the session; a discreet gear opens the settings panel.
+  Save persists the wheel/persona and restarts the session. The panel no longer
+  chooses the AI provider: that lives in Settings → AI (Gemini included).
+- While the DJ speaks, a full-screen abstract sphere view appears and returns to
+  the song view when the utterance ends.
+
+## D-16 — Scrobbler-first listening history
+
+**Status:** read/import implemented for all three services; local JSONL store; outbound Last.fm, ListenBrainz and Custom implemented; Local telemetry implemented.
+
+- The local event table is not enough: a user who listens elsewhere would get
+  generic recommendations. The app must import listens from Last.fm,
+  ListenBrainz or a self-hosted compatible service, store them on the phone,
+  and merge them with local events before generating playlists.
+- Import is paged, resumable and idempotent: a checkpoint per service, a
+  unique fingerprint per listen, validation of required fields, bounded
+  retries with backoff, and no stamp advance on failure.
+- Before downloading, the importer queries the service's total listen count
+  (Last.fm `user.getInfo`, ListenBrainz/self-hosted `listen-count`). The UI
+  shows `fetched / total` with a progress bar. A run only marks the checkpoint
+  complete when the fetched count reaches the total (with a small tolerance);
+  an old capped run is detected by comparing the local per-service count with
+  the total and is rebuilt from zero.
+- Sync frequency is configurable: startup, 15 min, 1 h, 6 h, daily, weekly or
+  off. A completed import immediately requests playlist regeneration through
+  `RadioStarRefreshBus`; daily/weekly stamps are bypassed for that explicit
+  refresh.
+- The last import result is persisted (`scrobblerLastResult`), so leaving and
+  re-entering the screen no longer says "Never imported". Incremental sync
+  starts from the newest page and stops at the saved timestamp; a local count
+  below the service total triggers a repair backfill instead of re-downloading
+  everything or silently keeping a capped checkpoint.
+- Outbound scrobbling is separate from import. A **Scrobble service** setting
+  chooses Off, Last.fm, ListenBrainz, Custom or External scrobbler. Off is the
+  default. External means another app already scrobbles, so RadioStar stays
+  silent while local telemetry can still run.
+- A ListenBrainz or Custom send uses `ScrobbleSink` and falls back to the
+  import token when no destination token is set.
+- Without a linked scrobbler the playlists use a generic seed and are marked
+  as such; the empty or misleading history is never presented as personal.
+
+## D-17 — RadioStar brand
+
+**Status:** implemented.
+
+- App label is **RadioStar** (`RadioStar Debug` for the dev build); package ids
+  stay `link.nzrs.radiostar` / `.dev` so debug installs do not collide with the
+  upstream Metrolist package.
+- Adaptive icon foreground and monochrome mask use the AI-generated
+  strawberry-with-headphones artwork, cropped and background-cleaned into
+  `docs/assets/radiostar-icon.png`. The adaptive background is the artwork's
+  beige (`#D1BAAC`).
+- Settings → RadioStar includes **Credits and licences**; the full list lives in
+  `docs/CREDITS.md` (Metrolist, LAION CLAP, ONNX Runtime, Media3, DPP paper,
+  key profiles). Rejected MERT/Essentia licences are recorded.
+- The optional DJ AI key is encrypted with AES/GCM in the Android Keystore
+  (`SecureKeyStore`); plaintext is never written to DataStore.
+
+## D-18 — Six o'clock playlist day and imported-first mixes
+
+**Status:** implemented.
+
+- The daily/weekly playlist day starts at **06:00 local time**. Before 06:00 the
+  previous day is still current, so leaving the app open overnight does not
+  rebuild at midnight. A 10-minute background check catches the rollover.
+- Imported listens are the primary anchor source. Local `event` rows are only a
+  fallback when no imported history exists. Daily anchors are resolved to
+  YouTube songs with a bounded, cached search.
+- If a window has no imported listens, the newest imported history is used
+  instead of silently switching back to Metrolist's local history.
+
+## D-19 — History-based Weekly and Monthly Most
+
+**Status:** implemented.
+
+- The upstream Weekly Most and Monthly Most playlists are kept, not hidden.
+- Their windows are filled from both local `event` rows and imported listens.
+  Imported listens are counted by normalised title/artist, resolved to YouTube
+  songs with a bounded, cached search and inserted into Room.
+- Importing new listens clears the weekly/monthly sync stamps. Opening Stats
+  rebuilds both lists, so an import is visible without waiting a week.
+- This avoids a second set of "RadioStar Most" playlists and the consistency
+  cost of two competing statistics views.
+
+## D-20 — Local advanced telemetry
+
+**Status:** implemented, opt-in, off by default.
+
+- The event log is local JSONL in the app's private storage. Nothing is sent to
+  the laptop or any backend.
+- Events: play, pause, skip, seek and completion, with position/duration,
+  timestamp, process session, playlist and queue seed, plus song and artist.
+- The settings screen discloses the fields, shows the count and deletes the
+  file on request.
+- Telemetry never runs unless the user enables it; turning it off stops new
+  writes immediately.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

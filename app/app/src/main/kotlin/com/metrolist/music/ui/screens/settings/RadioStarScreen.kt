@@ -6,9 +6,8 @@
 package com.metrolist.music.ui.screens.settings
 
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,26 +16,32 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -44,43 +49,19 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
-import com.metrolist.music.constants.RadioStarDjKey
-import com.metrolist.music.constants.RadioStarEnergyKey
-import com.metrolist.music.constants.RadioStarHistoryKey
-import com.metrolist.music.constants.RadioStarMixKey
+import com.metrolist.music.constants.RadioStarArtworkOpacityKey
 import com.metrolist.music.constants.RadioStarServerKey
-import com.metrolist.music.recommend.ListenHistory
-import com.metrolist.music.recommend.MixKind
+import com.metrolist.music.recommend.RadioStarRefreshBus
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
-import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private const val MAX_HISTORY_KEYS = 5_000
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RadioStarScreen(navController: NavController) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    // Debug/test builds may configure the engine through globals. Until the
-    // user changes something here, show the value the service is using.
-    val globalMix =
-        remember {
-            when (Settings.Global.getString(context.contentResolver, "radiostar_mix")?.lowercase()) {
-                "jams" -> MixKind.JAMS
-                "explore" -> MixKind.EXPLORE
-                else -> MixKind.DISCOVER
-            }
-        }
-    val globalDj = remember { Settings.Global.getInt(context.contentResolver, "radiostar_dj", 0) == 1 }
-    val globalEnergy = remember { Settings.Global.getInt(context.contentResolver, "radiostar_energy", 0) == 1 }
     val globalServer =
         remember {
             Settings.Global
@@ -89,39 +70,16 @@ fun RadioStarScreen(navController: NavController) {
                 ?.trimEnd('/')
                 .orEmpty()
         }
-
-    var mix by rememberEnumPreference(RadioStarMixKey, globalMix)
-    var dj by rememberPreference(RadioStarDjKey, globalDj)
-    var energy by rememberPreference(RadioStarEnergyKey, globalEnergy)
     var server by rememberPreference(RadioStarServerKey, globalServer)
-    var history by rememberPreference(RadioStarHistoryKey, emptySet<String>())
-
+    var artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
+    val artworkSlider = rememberSliderState(value = artworkOpacity)
+    LaunchedEffect(artworkOpacity) {
+        if (artworkSlider.value != artworkOpacity) {
+            artworkSlider.value = artworkOpacity
+        }
+    }
     var showServerDialog by remember { mutableStateOf(false) }
     var serverDraft by remember { mutableStateOf("") }
-    var importFailed by remember { mutableStateOf(false) }
-
-    val importer =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri == null) return@rememberLauncherForActivityResult
-            scope.launch {
-                val text =
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            context.contentResolver
-                                .openInputStream(uri)
-                                ?.bufferedReader()
-                                ?.use { it.readText() }
-                        }.getOrNull()
-                    }
-                if (text.isNullOrBlank()) {
-                    importFailed = true
-                    return@launch
-                }
-                val keys = ListenHistory.historyKeys(ListenHistory.parseCsv(text))
-                history = keys.take(MAX_HISTORY_KEYS).toSet()
-                importFailed = false
-            }
-        }
 
     Column(
         Modifier
@@ -140,56 +98,10 @@ fun RadioStarScreen(navController: NavController) {
             ),
         )
 
-        Text(
-            text = stringResource(R.string.radiostar_description),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-        )
-
-        Text(
-            text = stringResource(R.string.radiostar_mix),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MixKind.values().forEach { kind ->
-                FilterChip(
-                    selected = mix == kind,
-                    onClick = { mix = kind },
-                    label = { Text(mixLabel(kind)) },
-                )
-            }
-        }
-        Text(
-            text = mixDescription(mix),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-        )
-
         Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_engine),
             items =
                 listOf(
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.music_note),
-                        title = { Text(stringResource(R.string.radiostar_dj)) },
-                        description = { Text(stringResource(R.string.radiostar_dj_desc)) },
-                        trailingContent = {
-                            Switch(checked = dj, onCheckedChange = { dj = it })
-                        },
-                        onClick = { dj = !dj },
-                    ),
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.equalizer),
-                        title = { Text(stringResource(R.string.radiostar_energy)) },
-                        description = { Text(stringResource(R.string.radiostar_energy_desc)) },
-                        trailingContent = {
-                            Switch(checked = energy, onCheckedChange = { energy = it })
-                        },
-                        onClick = { energy = !energy },
-                    ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.radio),
                         title = { Text(stringResource(R.string.radiostar_server)) },
@@ -201,41 +113,70 @@ fun RadioStarScreen(navController: NavController) {
                             showServerDialog = true
                         },
                     ),
-                ),
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Material3SettingsGroup(
-            title = stringResource(R.string.radiostar_history),
-            items =
-                listOf(
                     Material3SettingsItem(
-                        icon = painterResource(R.drawable.queue_music),
-                        title = { Text(stringResource(R.string.radiostar_history)) },
-                        description = {
-                            Text(
-                                if (importFailed) {
-                                    stringResource(R.string.radiostar_history_failed)
-                                } else if (history.isEmpty()) {
-                                    stringResource(R.string.radiostar_history_help)
-                                } else {
-                                    stringResource(R.string.radiostar_history_count, history.size)
-                                },
-                            )
-                        },
-                        onClick = { importer.launch(arrayOf("text/csv", "text/plain", "*/*")) },
-                    ),
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.clear_all),
-                        title = { Text(stringResource(R.string.radiostar_history_clear)) },
-                        enabled = history.isNotEmpty(),
-                        onClick = { history = emptySet() },
+                        icon = painterResource(R.drawable.sync),
+                        title = { Text(stringResource(R.string.radiostar_refresh_now)) },
+                        onClick = { RadioStarRefreshBus.request() },
                     ),
                 ),
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.palette),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    Spacer(Modifier.size(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.radiostar_artwork),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.radiostar_artwork_desc),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        text = "${(artworkOpacity * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    state = artworkSlider,
+                    onValueChange = { artworkOpacity = it },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
     }
 
     if (showServerDialog) {
@@ -270,7 +211,7 @@ fun RadioStarScreen(navController: NavController) {
     }
 
     TopAppBar(
-        title = { Text(stringResource(R.string.radiostar)) },
+        title = { Text(stringResource(R.string.radiostar_engine)) },
         navigationIcon = {
             IconButton(
                 onClick = navController::navigateUp,
@@ -284,23 +225,3 @@ fun RadioStarScreen(navController: NavController) {
         },
     )
 }
-
-@Composable
-private fun mixLabel(kind: MixKind): String =
-    stringResource(
-        when (kind) {
-            MixKind.DISCOVER -> R.string.radiostar_mix_discover
-            MixKind.JAMS -> R.string.radiostar_mix_jams
-            MixKind.EXPLORE -> R.string.radiostar_mix_explore
-        },
-    )
-
-@Composable
-private fun mixDescription(kind: MixKind): String =
-    stringResource(
-        when (kind) {
-            MixKind.DISCOVER -> R.string.radiostar_mix_discover_desc
-            MixKind.JAMS -> R.string.radiostar_mix_jams_desc
-            MixKind.EXPLORE -> R.string.radiostar_mix_explore_desc
-        },
-    )

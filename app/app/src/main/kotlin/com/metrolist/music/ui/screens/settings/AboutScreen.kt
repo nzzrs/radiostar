@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,12 +43,14 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -222,6 +225,7 @@ fun AboutScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val wannaPlayStr = stringResource(R.string.wanna_play_favorite_song)
     val yeahStr = stringResource(R.string.yeah)
+    var showRadioStarCredits by remember { mutableStateOf(false) }
     
     val windowInsets = LocalPlayerAwareWindowInsets.current
 
@@ -237,6 +241,85 @@ fun AboutScreen(
             Modifier.windowInsetsPadding(
                 windowInsets.only(WindowInsetsSides.Top)
             )
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // RadioStar identity and attribution, kept separate from the upstream
+        // Metrolist developer section below.
+        ElevatedCard(
+            shape = RoundedCornerShape(32.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        modifier = Modifier.size(72.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_launcher_foreground),
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "RadioStar",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-0.5).sp
+                        )
+                        Text(
+                            text = stringResource(R.string.radiostar_about_tagline),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = BuildConfig.VERSION_NAME,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.radiostar_about_blurb),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = { uriHandler.openUri("https://github.com/nzzrs/radiostar") },
+                        shape = CircleShape
+                    ) {
+                        Text(stringResource(R.string.radiostar_source))
+                    }
+                    FilledTonalButton(
+                        onClick = { showRadioStarCredits = true },
+                        shape = CircleShape
+                    ) {
+                        Text(stringResource(R.string.radiostar_credits))
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = stringResource(R.string.radiostar_upstream_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp)
         )
 
         Spacer(Modifier.height(16.dp))
@@ -497,6 +580,29 @@ fun AboutScreen(
         )
         
         Spacer(Modifier.height(48.dp))
+    }
+
+    if (showRadioStarCredits) {
+        AlertDialog(
+            onDismissRequest = { showRadioStarCredits = false },
+            title = { Text(stringResource(R.string.radiostar_credits)) },
+            text = { Text(stringResource(R.string.radiostar_credits_text)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRadioStarCredits = false
+                        uriHandler.openUri("https://github.com/nzzrs/radiostar/blob/main/docs/CREDITS.md")
+                    }
+                ) {
+                    Text(stringResource(R.string.radiostar_open_credits))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRadioStarCredits = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
     }
 
     TopAppBar(

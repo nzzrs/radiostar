@@ -32,6 +32,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.datastore.preferences.core.Preferences
@@ -96,16 +97,8 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.innertube.YouTube
 import android.provider.Settings
-import com.metrolist.music.recommend.Candidate
-import com.metrolist.music.recommend.MixBuilder
-import com.metrolist.music.recommend.MixKind
 import com.metrolist.music.recommend.SessionState
-import com.metrolist.music.recommend.SlateEntry
 import com.metrolist.innertube.models.SongItem
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertubex.extraction.ContentHints
 import com.metrolist.lastfm.LastFM
@@ -145,7 +138,7 @@ import com.metrolist.music.discord.DiscordRpcManager
 import com.metrolist.music.discord.DiscordActivityBuilder
 import com.metrolist.music.discord.DiscordTemplateRenderer
 import com.metrolist.music.discord.PresenceStatus
-import com.metrolist.music.constants.EnableLastFMScrobblingKey
+import com.metrolist.music.constants.AdvancedTelemetryEnabledKey
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.HideVideoSongsKey
@@ -218,19 +211,29 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.YouTubePlaylistQueue
 import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
-import androidx.datastore.preferences.core.edit
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
+import androidx.datastore.preferences.core.edit
+import com.metrolist.music.constants.RadioStarDjAiKey
 import com.metrolist.music.constants.RadioStarDjKey
-import com.metrolist.music.constants.RadioStarEnergyKey
-import com.metrolist.music.constants.RadioStarHistoryKey
-import com.metrolist.music.constants.RadioStarInjectedKey
-import com.metrolist.music.constants.RadioStarMixKey
-import com.metrolist.music.constants.RadioStarServerKey
+import com.metrolist.music.constants.RadioStarProfilesKey
+import com.metrolist.music.recommend.AudioFeatures
+import com.metrolist.music.recommend.AudioProfile
 import com.metrolist.music.recommend.ClapEmbedderImpl
+import com.metrolist.music.recommend.DjAiCommentator
+import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjPlaybackPolicy
+import com.metrolist.music.recommend.DjSpeechDecision
+import com.metrolist.music.recommend.DjSpeechPolicy
+import com.metrolist.music.recommend.ScrobbleDestination
+import com.metrolist.music.recommend.TelemetryBias
+import com.metrolist.music.recommend.TelemetryEventType
+import com.metrolist.music.recommend.TelemetryStore
+import com.metrolist.music.recommend.TelemetryTaste
+import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.recommend.DjScript
-import com.metrolist.music.recommend.EnergyOrderer
-import com.metrolist.music.recommend.ListenHistory
+import com.metrolist.music.recommend.TempoKeyEstimator
+import org.json.JSONObject
 import com.metrolist.music.utils.CoilBitmapLoader
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
@@ -463,24 +466,26 @@ class MusicService :
     private var analysisEmbedder: ClapEmbedder? = null
     @Volatile private var analysisMediaId: String? = null
     private val sessionState = SessionState()
-    private val injectedIds = HashSet<String>()
-    private val trackRms = java.util.concurrent.ConcurrentHashMap<String, Float>()
+    private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
+    @Volatile private var radioStarDj = false
+    @Volatile private var aiDjEnabled = true
+    @Volatile private var djSessionId = 0
+    @Volatile private var djAiEnabled = false
     private val djHandler = Handler(Looper.getMainLooper())
     private var djAnnouncer: DjAnnouncer? = null
     private var announcedPair: String? = null
     private var djTickerStarted = false
     private var djBaseVolume = 1f
-
-    @Volatile private var radioStarMix: MixKind? = null
-    @Volatile private var lastSlateKind: MixKind? = null
-    @Volatile private var radioStarDj = false
-    @Volatile private var radioStarEnergy = false
-    @Volatile private var radioStarServer: String? = null
-    @Volatile private var radioStarHistory: Set<String> = emptySet()
-
-    /** Slate ids persisted across process restarts, when [injectedIds] is empty. */
-    @Volatile private var persistedSlateIds: Set<String> = emptySet()
-    @Volatile private var candidateProbeId: String? = null
+    @Volatile private var djPersona: DjPersona? = null
+    @Volatile private var djBias: TelemetryBias = TelemetryBias.EMPTY
+    private var djLastSpeechIndex: Int = -1
+    private var djLastSpeechAtMs: Long = 0L
+    private var djSessionStartedAtMs: Long = 0L
+    private var djLinksSpoken: Int = 0
+    private var djHeldAtTrackEnd: Boolean = false
+    private var djPreparedPair: String? = null
+    private var djPreparedLine: String? = null
+    private var djPrepareJob: Job? = null
 
     private var loudnessSetupJob: Job? = null
     private var loudnessSetupGeneration: Long = 0L
@@ -524,6 +529,12 @@ class MusicService :
     private var latestMediaNotification: Notification? = null
 
     private var scrobbleManager: ScrobbleManager? = null
+
+    private var telemetrySong: com.metrolist.music.models.MediaMetadata? = null
+    private var telemetryStarted = false
+    private var telemetryPaused = false
+    private var telemetryPositionMs = 0L
+    private var telemetryPositionJob: Job? = null
 
     val automixItems = MutableStateFlow<List<MediaItem>>(emptyList())
 
@@ -1154,10 +1165,13 @@ class MusicService :
         }
 
         dataStore.data
-            .map { it[EnableLastFMScrobblingKey] ?: false }
+            .map { ScrobbleDestination.effective(it) }
             .debounce(300)
             .distinctUntilChanged()
-            .collect(scope) { enabled ->
+            .collect(scope) { destination ->
+                val enabled =
+                    destination != ScrobbleDestination.OFF &&
+                        destination != ScrobbleDestination.EXTERNAL
                 if (enabled && scrobbleManager == null) {
                     val delayPercent = dataStore.get(ScrobbleDelayPercentKey, LastFM.DEFAULT_SCROBBLE_DELAY_PERCENT)
                     val minSongDuration =
@@ -1165,7 +1179,8 @@ class MusicService :
                     val delaySeconds = dataStore.get(ScrobbleDelaySecondsKey, LastFM.DEFAULT_SCROBBLE_DELAY_SECONDS)
                     scrobbleManager =
                         ScrobbleManager(
-                            scope,
+                            context = this@MusicService,
+                            scope = scope,
                             minSongDuration = minSongDuration,
                             scrobbleDelayPercent = delayPercent,
                             scrobbleDelaySeconds = delaySeconds,
@@ -1857,6 +1872,7 @@ class MusicService :
             return
         }
 
+        endDjSession()
         currentQueue = queue
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
@@ -1919,12 +1935,14 @@ class MusicService :
     }
 
     fun adoptQueue(queue: Queue, title: String? = null, initialQueueSize: Int = 0) {
+        endDjSession()
         currentQueue = queue
         queueTitle = title
         originalQueueSize = initialQueueSize
     }
 
     fun startRadioSeamlessly() {
+        endDjSession()
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("startRadioSeamlessly called before player initialization")
             return
@@ -2589,6 +2607,15 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        finishTelemetry(
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            ) {
+                TelemetryEventType.COMPLETE
+            } else {
+                TelemetryEventType.SKIP
+            },
+        )
         // Only natural completion transitions mark the previous track as fully cached,
         // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -2615,6 +2642,11 @@ class MusicService :
         previousEpisodePosition = 0L
 
         val newMetadata = mediaItem?.metadata
+        telemetrySong = player.currentMetadata
+        telemetryStarted = false
+        telemetryPaused = false
+        telemetryPositionMs = 0L
+        if (player.isPlaying) startTelemetry()
         if (newMetadata?.isEpisode == true) {
             previousEpisodeId = newMetadata.id
             scope.launch {
@@ -2635,6 +2667,8 @@ class MusicService :
         previousMediaItemIndex = player.currentMediaItemIndex
 
         lastPlaybackSpeed = -1.0f // force update song
+
+        prepareDjAnnouncementForCurrent()
 
         setupAudioNormalization()
 
@@ -2725,6 +2759,8 @@ class MusicService :
                 if (castConnectionHandler?.isCasting?.value != true) {
                     player.play()
                 }
+            } else if (radioStarDj && !player.hasNextMediaItem()) {
+                endDjSession()
             }
         }
 
@@ -2748,6 +2784,9 @@ class MusicService :
 
         if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
             scrobbleManager?.onSongStop()
+        }
+        if (playbackState == Player.STATE_ENDED) {
+            finishTelemetry(TelemetryEventType.COMPLETE)
         }
     }
 
@@ -2858,6 +2897,17 @@ class MusicService :
         }
 
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
+            if (player.isPlaying) {
+                if (telemetryStarted && telemetryPaused) {
+                    telemetryPaused = false
+                    startTelemetry(force = true)
+                } else {
+                    startTelemetry()
+                }
+            } else if (telemetryStarted && !telemetryPaused) {
+                telemetryPaused = true
+                recordTelemetry(TelemetryEventType.PAUSE)
+            }
             updateWidgetUI(player.isPlaying)
             if (player.isPlaying) {
                 discordIntentionalDisconnect = false
@@ -4058,10 +4108,14 @@ class MusicService :
         )
 
         tap.listener = { window, rate ->
+            // Capture the track before the callback runs: the worker may finish
+            // after a transition, and the features belong to the window's track.
+            val windowMediaId = analysisMediaId
+            val windowRms = tap.lastWindowRms
             Timber.tag("RadioStarTap").i(
                 "window=%d rms=%.4f windows=%d dropped=%dB rate=%d ch=%d underruns=%d",
                 window.size,
-                tap.lastWindowRms,
+                windowRms,
                 tap.windowsEmitted,
                 tap.ring.droppedBytes,
                 rate,
@@ -4078,8 +4132,46 @@ class MusicService :
                     embedder?.droppedWindows ?: 0L,
                 )
                 sessionState.update(vector, android.os.SystemClock.elapsedRealtime())
-                analysisMediaId?.let { id -> trackRms[id] = tap.lastWindowRms }
-                probeCandidates(analysisMediaId)
+
+                val previous = windowMediaId?.let { trackProfiles[it] }
+                // Tempo and key are stable inside one track: analyse the first
+                // window and reuse it. RMS keeps updating every 10 s.
+                val needsFeatures = previous?.bpm == null || previous.key == null
+                val features =
+                    if (needsFeatures) {
+                        TempoKeyEstimator.estimate(window, rate)
+                    } else {
+                        AudioFeatures(
+                            bpm = previous.bpm,
+                            tempoConfidence = 0.0,
+                            key = previous.key,
+                            keyConfidence = 0.0,
+                            analysisMs = 0L,
+                        )
+                    }
+                if (windowMediaId != null) {
+                    trackProfiles[windowMediaId] =
+                        AudioProfile(
+                            bpm = features.bpm ?: previous?.bpm,
+                            key = features.key ?: previous?.key,
+                            rms = windowRms,
+                        )
+                }
+                if (needsFeatures) {
+                    Timber.tag("RadioStarFeatures").i(
+                        "id=%s bpm=%.1f tempoConf=%.2f key=%s keyConf=%.2f rms=%.3f ms=%d",
+                        windowMediaId,
+                        features.bpm ?: 0.0,
+                        features.tempoConfidence,
+                        features.key?.name ?: "unknown",
+                        features.keyConfidence,
+                        windowRms,
+                        features.analysisMs,
+                    )
+                }
+                if (needsFeatures || tap.windowsEmitted % 6L == 0L) {
+                    persistTrackProfiles()
+                }
             }
         }
         player.addAnalyticsListener(
@@ -4098,159 +4190,150 @@ class MusicService :
         tap.enabled = true
     }
 
+    /** Keeps BPM/key/RMS for the playlist generator; small JSON, one write per track. */
+    private fun persistTrackProfiles() {
+        if (trackProfiles.isEmpty()) return
+        val payload =
+            JSONObject().apply {
+                trackProfiles.forEach { (id, profile) ->
+                    put(
+                        id,
+                        JSONObject().apply {
+                            profile.bpm?.let { put("bpm", it) }
+                            profile.rms?.let { put("rms", it.toDouble()) }
+                            profile.key?.let {
+                                put("root", it.pitchClass)
+                                put("minor", it.minor)
+                            }
+                        },
+                    )
+                }
+            }.toString()
+        applicationScope.launch {
+            runCatching {
+                dataStore.edit { prefs -> prefs[RadioStarProfilesKey] = payload }
+            }
+        }
+    }
+
     private fun createClapEmbedder(): ClapEmbedder? =
         runCatching { ClapEmbedderImpl(this) }
             .onFailure { Timber.tag("RadioStarTap").e(it, "embedder init failed") }
             .getOrNull()
 
-    /** Debug probe: can the YTM radio endpoint supply a candidate pool? */
-    private fun probeCandidates(mediaId: String?) {
-        if (mediaId.isNullOrBlank() || mediaId == candidateProbeId) return
-        Timber.tag("RadioStarCandidates").i("probe mediaId=%s", mediaId)
-        candidateProbeId = mediaId
-        scope.launch(Dispatchers.IO) {
-            Timber.tag("RadioStarCandidates").i("requesting radio for %s", mediaId)
-            val result =
-                try {
-                    YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()
-                } catch (error: Throwable) {
-                    Timber.tag("RadioStarCandidates").e(error, "radio request failed")
-                    null
+    /** User pressed Start DJ. This is the only place a session replaces the queue. */
+    fun playDjSession(items: List<MediaItem>, persona: DjPersona) {
+        if (items.isEmpty()) return
+        scope.launch(Dispatchers.Main) {
+            if (!aiDjEnabled) return@launch
+            val sessionId = ++djSessionId
+            player.stop()
+            player.setPauseAtEndOfMediaItems(false)
+            player.playWhenReady = false
+            player.setMediaItems(items, 0, 0L)
+            player.prepare()
+            currentQueue = EmptyQueue
+            queueTitle = null
+            originalQueueSize = items.size
+            radioStarDj = true
+            djPersona = persona
+            announcedPair = null
+            djBias = TelemetryBias.EMPTY
+            djLastSpeechIndex = -1
+            djLastSpeechAtMs = SystemClock.elapsedRealtime()
+            djSessionStartedAtMs = djLastSpeechAtMs
+            djLinksSpoken = 0
+            djHeldAtTrackEnd = false
+            resetDjPreparation()
+            DjSessionState.speaking(persona)
+            DjSessionState.requestPlayerOpen()
+            val announcer =
+                djAnnouncer
+                    ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
+                        .also { djAnnouncer = it }
+            announcer.setVoice(persona.pitch, persona.rate)
+            announcer.prepare()
+            val first = items.firstOrNull()?.mediaMetadata
+            val firstTitle = first?.title?.toString().orEmpty()
+            val firstArtist = first?.artist?.toString().orEmpty()
+            val fallback =
+                DjScript.intro(
+                    persona = persona,
+                    firstTitle = firstTitle,
+                    firstArtist = firstArtist,
+                    language = java.util.Locale.getDefault().language,
+                )
+            val startPlayback = {
+                if (radioStarDj && sessionId == djSessionId && ::player.isInitialized) {
+                    player.volume = calculateEffectiveVolume()
+                    player.play()
+                    prepareDjAnnouncementForCurrent()
                 }
-            if (result == null) {
-                Timber.tag("RadioStarCandidates").w("no radio for %s", mediaId)
-                return@launch
             }
-            Timber.tag("RadioStarCandidates").i("seed=%s count=%d", mediaId, result.items.size)
-            result.items.take(10).forEach { item ->
-                Timber.tag("RadioStarCandidates").i(
-                    "candidate id=%s title=%s artists=%s duration=%s",
-                    item.id,
-                    item.title,
-                    item.artists.joinToString(", ") { it.name },
-                    item.duration,
-                )
-            }
-
-            val pool = result.items.filter { it.id != mediaId }.distinctBy { it.id }
-            val slate = buildSlate(pool)
-            if (slate.isNotEmpty()) {
-                Timber.tag("RadioStarSlate").i(
-                    "slate size=%d seed=%s mix=%s",
-                    slate.size,
-                    mediaId,
-                    lastSlateKind ?: mixKind(),
-                )
-                slate.forEachIndexed { index, entry ->
-                    Timber.tag("RadioStarSlate").i(
-                        "#%d %s — %s q=%.3f",
-                        index,
-                        entry.candidate.title,
-                        entry.candidate.artists.joinToString(", "),
-                        entry.score,
+            val speak: (String) -> Unit = { line ->
+                val spoken =
+                    announcer.announce(
+                        line,
+                        "dj:intro:${System.nanoTime()}",
+                        onDone = {
+                            djLinksSpoken = 1
+                            djLastSpeechIndex = -1
+                            djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                            scope.launch(Dispatchers.Main) { startPlayback() }
+                        },
                     )
+                if (!spoken) startPlayback()
+            }
+            if (djAiEnabled) {
+                scope.launch {
+                    val ai =
+                        kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                            DjAiCommentator.intro(this@MusicService, persona, firstTitle, firstArtist)
+                        }
+                    djHandler.post {
+                        if (radioStarDj && sessionId == djSessionId) speak(ai ?: fallback)
+                    }
                 }
-                enqueueSlate(slate, mediaId)
+            } else {
+                speak(fallback)
             }
+            scope.launch(Dispatchers.IO) {
+                val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
+                if (radioStarDj && sessionId == djSessionId) djBias = loaded
+            }
+            Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
         }
     }
 
-    /**
-     * Debug slate: text vectors from the laptop, quality from the current audio
-     * embedding, DPP for diversity. Every candidate is text-only, so the kernel
-     * sees one modality and reduces to the plain Gram matrix.
-     */
-    private fun buildSlate(pool: List<SongItem>): List<SlateEntry> {
-        if (pool.size < 2) return emptyList()
-        val session = sessionState.current() ?: return emptyList()
-        val server =
-            radioStarServer
-                ?: Settings.Global
-                    .getString(contentResolver, "radiostar_embed_server")
-                    ?.trim()
-                    ?.trimEnd('/')
-        if (server.isNullOrBlank()) {
-            Timber.tag("RadioStarSlate").i("no radiostar_embed_server setting")
-            return emptyList()
+    /** Ends the DJ session without stopping ordinary playback. */
+    private fun endDjSession() {
+        if (!radioStarDj) return
+        radioStarDj = false
+        djSessionId++
+        announcedPair = null
+        djPersona = null
+        djAnnouncer?.shutdown()
+        djAnnouncer = null
+        resetDjPreparation()
+        releaseDjSpeechHold()
+        if (::player.isInitialized) {
+            player.setPauseAtEndOfMediaItems(false)
+            if (!isCrossfading) player.volume = calculateEffectiveVolume()
         }
-        val kind = radioStarMix ?: mixKind()
-        lastSlateKind = kind
-
-        val candidates =
-            pool
-                .filter { item ->
-                    item.title.isNotBlank() && item.artists.any { artist -> artist.name.isNotBlank() }
-                }.take(48)
-        if (candidates.size < 2) return emptyList()
-        val vectors = requestEmbeddings(server, candidates)
-        if (vectors == null || vectors.size != candidates.size) {
-            Timber.tag("RadioStarSlate").w("embed request failed for %d candidates", candidates.size)
-            return emptyList()
-        }
-
-        val items =
-            candidates.mapIndexed { index, song ->
-                Candidate(
-                    id = song.id,
-                    title = song.title,
-                    artists = song.artists.map { it.name },
-                    vector = DoubleArray(vectors[index].size) { column -> vectors[index][column].toDouble() },
-                    durationSeconds = song.duration,
-                    tag = song.toMediaMetadata(),
-                )
-            }
-        val slate =
-            MixBuilder.build(
-                session = session,
-                candidates = items,
-                kind = kind,
-                k = 10,
-                historyKeys = radioStarHistory,
-            )
-        return if (radioStarEnergy) EnergyOrderer.orderByEnergyArc(slate, trackRms) else slate
+        DjSessionState.idle()
+        Timber.tag("RadioStarDj").i("end session")
     }
 
-    /**
-     * Mirrors the RadioStar preferences into volatile fields so the player
-     * thread and the embedding callback never block on DataStore.
-     */
+    /** Mirrors the DJ preference into a volatile field for the player thread. */
     private fun observeRadioStarSettings() {
         applicationScope.launch {
             dataStore.data.collect { prefs ->
-                radioStarMix = prefs[RadioStarMixKey]?.let { toMixKind(it) }
-                radioStarDj =
-                    prefs[RadioStarDjKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_dj", 0) == 1)
-                radioStarEnergy =
-                    prefs[RadioStarEnergyKey] ?: (Settings.Global.getInt(contentResolver, "radiostar_energy", 0) == 1)
-                radioStarServer =
-                    prefs[RadioStarServerKey]?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
-                radioStarHistory = ListenHistory.fromStored(prefs[RadioStarHistoryKey] ?: emptySet())
-                persistedSlateIds = prefs[RadioStarInjectedKey] ?: emptySet()
-                Timber
-                    .tag("RadioStarSettings")
-                    .i(
-                        "mix=%s dj=%s energy=%s server=%s history=%d",
-                        radioStarMix,
-                        radioStarDj,
-                        radioStarEnergy,
-                        radioStarServer,
-                        radioStarHistory.size,
-                    )
-                if (!radioStarDj) {
-                    djAnnouncer?.shutdown()
-                    djAnnouncer = null
-                }
+                aiDjEnabled = prefs[RadioStarDjKey] ?: true
+                djAiEnabled = prefs[RadioStarDjAiKey] ?: false
+                if (!aiDjEnabled) endDjSession()
             }
         }
     }
-
-    private fun toMixKind(value: String): MixKind? =
-        when (value.lowercase()) {
-            "discover" -> MixKind.DISCOVER
-            "jams" -> MixKind.JAMS
-            "explore" -> MixKind.EXPLORE
-            else -> null
-        }
 
     private fun startDjTicker() {
         if (djTickerStarted) return
@@ -4266,181 +4349,227 @@ class MusicService :
             }
         }
 
-    /** Announce the next track inside its last seconds, before it starts. */
+    private data class DjPairPlan(
+        val index: Int,
+        val current: MediaItem,
+        val next: MediaItem,
+        val pair: String,
+        val nextTitle: String,
+        val nextArtist: String,
+        val tracksSince: Int,
+        val decision: DjSpeechDecision,
+        val fact: String?,
+        val fallback: String,
+    )
+
+    private fun planDjPair(): DjPairPlan? {
+        if (!radioStarDj || !::player.isInitialized) return null
+        val index = player.currentMediaItemIndex
+        if (index < 0 || index + 1 >= player.mediaItemCount) return null
+        val current = player.currentMediaItem ?: return null
+        if (current.mediaMetadata.mediaType == MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE) return null
+        val next = player.getMediaItemAt(index + 1)
+        val nextTitle = next.mediaMetadata.title?.toString().orEmpty()
+        val nextArtist = next.mediaMetadata.artist?.toString().orEmpty()
+        val currentArtist = current.mediaMetadata.artist?.toString().orEmpty()
+        val tracksSince = (index - djLastSpeechIndex).coerceAtLeast(1)
+        val roll =
+            (Math.floorMod(djSessionId * 37 + index * 17, 100)).toDouble() / 100.0
+        val nextBias =
+            djBias.score(
+                songId = next.mediaId,
+                artists =
+                    next.metadata?.artists?.map { it.name }
+                        ?: listOfNotNull(nextArtist.takeIf { it.isNotBlank() }),
+            )
+        val decision =
+            DjSpeechPolicy.decide(
+                tracksSinceLastSpeech = tracksSince,
+                elapsedSinceLastSpeechMs = SystemClock.elapsedRealtime() - djLastSpeechAtMs,
+                nextTrackBias = nextBias,
+                nextArtistChanged = !nextArtist.equals(currentArtist, ignoreCase = true),
+                linksSpoken = djLinksSpoken,
+                roll = roll,
+            )
+        val text =
+            DjScript.announcement(
+                title = nextTitle,
+                artist = nextArtist,
+                language = java.util.Locale.getDefault().language,
+            )
+        if (text.isEmpty()) return null
+        val fact =
+            if (decision.useFact) {
+                val artists =
+                    (0..minOf(index + 1, player.mediaItemCount - 1))
+                        .mapNotNull { position ->
+                            player.getMediaItemAt(position).mediaMetadata.artist?.toString()
+                                ?.takeIf { it.isNotBlank() }
+                        }.toSet().size
+                DjScript.observation(
+                    persona = djPersona ?: DjPersona.CHERRY,
+                    trackNumber = index + 1,
+                    elapsedMinutes = (SystemClock.elapsedRealtime() - djSessionStartedAtMs) / 60_000L,
+                    distinctArtists = artists,
+                    language = java.util.Locale.getDefault().language,
+                )
+            } else {
+                null
+            }
+        val fallback = if (fact.isNullOrBlank()) text else "$text $fact".take(260)
+        return DjPairPlan(
+            index = index,
+            current = current,
+            next = next,
+            pair = "${current.mediaId}>${next.mediaId}",
+            nextTitle = nextTitle,
+            nextArtist = nextArtist,
+            tracksSince = tracksSince,
+            decision = decision,
+            fact = fact,
+            fallback = fallback,
+        )
+    }
+
+    /**
+     * Prepares the next spoken link as soon as a track starts, so the end of
+     * the track never waits for the provider. The fallback stays available if
+     * the model is slow or offline.
+     */
+    private fun prepareDjAnnouncementForCurrent() {
+        if (!radioStarDj || !djAiEnabled || !::player.isInitialized) return
+        val plan = planDjPair() ?: return
+        if (!plan.decision.speak || plan.pair == djPreparedPair) return
+        val previous =
+            listOfNotNull(
+                plan.current.mediaMetadata.title?.toString(),
+                plan.current.mediaMetadata.artist?.toString(),
+            ).joinToString(" - ")
+        val fact = plan.fact
+        djPrepareJob?.cancel()
+        djPreparedPair = plan.pair
+        djPreparedLine = plan.fallback
+        val sessionId = djSessionId
+        djPrepareJob =
+            scope.launch {
+                val ai =
+                    kotlinx.coroutines.withTimeoutOrNull(25_000L) {
+                        DjAiCommentator.comment(
+                            context = this@MusicService,
+                            persona = djPersona ?: DjPersona.CHERRY,
+                            previous = previous,
+                            nextTitle = plan.nextTitle,
+                            nextArtist = plan.nextArtist,
+                            fact = fact,
+                        )
+                    }
+                if (radioStarDj &&
+                    djSessionId == sessionId &&
+                    djPreparedPair == plan.pair &&
+                    !ai.isNullOrBlank()
+                ) {
+                    djPreparedLine = ai
+                    Timber.tag("RadioStarDj").i("prepared pair=%s", plan.pair)
+                }
+            }
+    }
+
+    private fun resetDjPreparation() {
+        djPrepareJob?.cancel()
+        djPrepareJob = null
+        djPreparedPair = null
+        djPreparedLine = null
+    }
+
+    /** Speaks a link only when the session cadence calls for one. */
     private fun maybeAnnounceDj() {
         if (!radioStarDj || !::player.isInitialized) return
         if (!player.playWhenReady || player.playbackState != Player.STATE_READY) return
-        val index = player.currentMediaItemIndex
-        if (index < 0 || index + 1 >= player.mediaItemCount) return
-        val current = player.currentMediaItem ?: return
-        if (current.mediaMetadata.mediaType == MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE) return
-        val next = player.getMediaItemAt(index + 1)
-        val pair = "${current.mediaId}>${next.mediaId}"
-        if (pair == announcedPair) return
         if (!DjScript.shouldAnnounce(player.currentPosition, player.duration, false, true)) return
-
-        val text =
-            DjScript.announcement(
-                title = next.mediaMetadata.title?.toString().orEmpty(),
-                artist = next.mediaMetadata.artist?.toString().orEmpty(),
-                language = java.util.Locale.getDefault().language,
+        val plan = planDjPair() ?: return
+        if (plan.pair == announcedPair) return
+        announcedPair = plan.pair
+        if (!plan.decision.speak) {
+            Timber.tag("RadioStarDj").i(
+                "quiet pair=%s tracks=%d",
+                plan.pair,
+                plan.tracksSince,
             )
-        if (text.isEmpty()) return
+            return
+        }
 
+        val prepared = djPreparedPair == plan.pair && !djPreparedLine.isNullOrBlank()
+        val line = if (prepared) djPreparedLine.orEmpty() else plan.fallback
         val announcer =
             djAnnouncer
-                ?: DjAnnouncer(this) { ducked ->
+                ?: DjAnnouncer(this@MusicService) { ducked ->
                     djHandler.post { applyDjDuck(ducked) }
                 }.also { djAnnouncer = it }
         announcer.prepare()
-        if (announcer.announce(text, "dj:$pair")) {
-            announcedPair = pair
-            Timber.tag("RadioStarDj").i("announce pair=%s text=%s", pair, text)
+        // The line is already prepared; only the voice needs to start. Hold the
+        // next track at the boundary in case this song ends during the link.
+        beginDjSpeechHold()
+
+        val spoken =
+            announcer.announce(
+                line,
+                "dj:${plan.pair}",
+                onDone = {
+                    djHandler.post {
+                        if (radioStarDj) {
+                            djLastSpeechIndex = plan.index
+                            djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                            djLinksSpoken += 1
+                            Timber.tag("RadioStarDj").i(
+                                "announce reason=%s fact=%s prepared=%s pair=%s text=%s",
+                                plan.decision.reason,
+                                plan.decision.useFact,
+                                prepared,
+                                plan.pair,
+                                line,
+                            )
+                        }
+                        releaseDjSpeechHold()
+                    }
+                },
+            )
+        if (!spoken) releaseDjSpeechHold()
+    }
+
+    private fun beginDjSpeechHold() {
+        if (djHeldAtTrackEnd || !::player.isInitialized) return
+        if (!player.playWhenReady) return
+        djHeldAtTrackEnd = true
+        player.setPauseAtEndOfMediaItems(true)
+    }
+
+    private fun releaseDjSpeechHold() {
+        if (!djHeldAtTrackEnd) return
+        djHeldAtTrackEnd = false
+        if (!::player.isInitialized) return
+        player.setPauseAtEndOfMediaItems(false)
+        if (!radioStarDj || player.isPlaying) return
+        if (DjPlaybackPolicy.isAtTrackEnd(player.currentPosition, player.duration)) {
+            player.play()
         }
     }
 
     private fun applyDjDuck(ducked: Boolean) {
-        if (!::player.isInitialized || isCrossfading) return
         if (ducked) {
+            if (!radioStarDj || !::player.isInitialized || isCrossfading) return
             djBaseVolume = player.volume
-            player.volume = (djBaseVolume * 0.22f).coerceIn(0f, 1f)
+            player.volume = DjPlaybackPolicy.duckedVolume(djBaseVolume)
+            beginDjSpeechHold()
+            DjSessionState.speaking(djPersona ?: com.metrolist.music.recommend.DjPersona.CHERRY)
             Timber.tag("RadioStarDj").i("duck on volume=%.2f", player.volume)
         } else {
-            player.volume = calculateEffectiveVolume()
+            if (::player.isInitialized && !isCrossfading) {
+                player.volume = calculateEffectiveVolume()
+            }
+            DjSessionState.playing(djPersona ?: com.metrolist.music.recommend.DjPersona.CHERRY)
+            releaseDjSpeechHold()
             Timber.tag("RadioStarDj").i("duck off volume=%.2f", player.volume)
         }
-    }
-
-    private fun mixKind(): MixKind =
-        when (
-            Settings.Global
-                .getString(contentResolver, "radiostar_mix")
-                ?.lowercase()
-        ) {
-            "jams" -> MixKind.JAMS
-            "explore" -> MixKind.EXPLORE
-            else -> MixKind.DISCOVER
-        }
-
-    /** Debug queue injection: `radiostar_queue_mode=append`. */
-    private fun enqueueSlate(slate: List<SlateEntry>, seedMediaId: String) {
-        val mode = Settings.Global.getString(contentResolver, "radiostar_queue_mode")
-        if (!mode.equals("append", ignoreCase = true)) return
-
-        scope.launch(Dispatchers.Main) {
-            // Drop the previous slate's unplayed tail so the queue stays bounded
-            // and the recommendation refreshes as the session moves.
-            for (index in player.mediaItemCount - 1 downTo player.currentMediaItemIndex + 1) {
-                val queued = player.getMediaItemAt(index)
-                val fromSlate =
-                    queued.mediaMetadata.extras?.getBoolean(RADIO_STAR_SLATE_EXTRA) == true
-                if (queued.mediaId in injectedIds ||
-                    queued.mediaId in persistedSlateIds ||
-                    fromSlate
-                ) {
-                    player.removeMediaItem(index)
-                }
-            }
-            injectedIds.clear()
-
-            val existing = HashSet<String>()
-            for (index in 0 until player.mediaItemCount) {
-                existing.add(player.getMediaItemAt(index).mediaId)
-            }
-            val items =
-                slate
-                    .filter { it.candidate.id != seedMediaId && it.candidate.id !in existing }
-                    .map { entry ->
-                        MediaItem
-                            .Builder()
-                            .setMediaId(entry.candidate.id)
-                            .setUri(entry.candidate.id)
-                            .setCustomCacheKey(entry.candidate.id)
-                            .setTag(entry.candidate.tag)
-                            .setMediaMetadata(
-                                MediaMetadata
-                                    .Builder()
-                                    .setTitle(entry.candidate.title)
-                                    .setArtist(entry.candidate.artists.joinToString(", "))
-                                    .setExtras(
-                                        Bundle().apply { putBoolean(RADIO_STAR_SLATE_EXTRA, true) },
-                                    ).build(),
-                            ).build()
-                    }
-            if (items.isEmpty()) return@launch
-            player.addMediaItems(player.currentMediaItemIndex + 1, items)
-            val ids = items.map { it.mediaId }.toSet()
-            injectedIds.addAll(ids)
-            applicationScope.launch {
-                runCatching {
-                    dataStore.edit { prefs -> prefs[RadioStarInjectedKey] = ids }
-                }
-            }
-            Timber.tag("RadioStarSlate").i(
-                "queued %d items queue=%d",
-                items.size,
-                player.mediaItemCount,
-            )
-        }
-    }
-
-    private fun requestEmbeddings(server: String, items: List<SongItem>): Array<FloatArray>? {
-        val payload =
-            JSONObject().put(
-                "items",
-                JSONArray().apply {
-                    items.forEach { item ->
-                        put(
-                            JSONObject()
-                                .put("artist", item.artists.joinToString(", ") { it.name })
-                                .put("title", item.title),
-                        )
-                    }
-                },
-            )
-        val connection =
-            (URL("$server/embed").openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = 5_000
-                // 48 cold items can take well over a minute on a loaded laptop.
-                readTimeout = 120_000
-                setRequestProperty("content-type", "application/json")
-            }
-        return try {
-            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-            val code = connection.responseCode
-            if (code != HttpURLConnection.HTTP_OK) {
-                val error = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                Timber.tag("RadioStarSlate").w("embed http %d body=%s", code, error.take(300))
-                return null
-            }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val array = JSONObject(body).getJSONArray("vectors")
-            Array(array.length()) { row ->
-                val values = array.getJSONArray(row)
-                FloatArray(values.length()) { col -> values.getDouble(col).toFloat() }
-            }
-        } catch (error: Throwable) {
-            Timber.tag("RadioStarSlate").e(error, "embed request threw")
-            null
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun cosine(a: FloatArray, b: FloatArray): Double {
-        if (a.size != b.size) return 0.0
-        var dot = 0.0
-        var normA = 0.0
-        var normB = 0.0
-        for (index in a.indices) {
-            dot += a[index] * b[index]
-            normA += a[index] * a[index]
-            normB += b[index] * b[index]
-        }
-        val denominator = kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)
-        return if (denominator < 1e-9) 0.0 else dot / denominator
     }
 
     private fun createMediaSourceFactory(
@@ -4725,6 +4854,7 @@ class MusicService :
     override fun onDestroy() {
         isRunning = false
         djHandler.removeCallbacksAndMessages(null)
+        DjSessionState.idle()
         djAnnouncer?.shutdown()
         djAnnouncer = null
         analysisEmbedder?.close()
@@ -5278,7 +5408,91 @@ class MusicService :
     ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
             scheduleCrossfade()
+            if (telemetryStarted && telemetrySong != null &&
+                oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+            ) {
+                telemetryPositionMs = newPosition.positionMs.coerceAtLeast(0L)
+                recordTelemetry(
+                    TelemetryEventType.SEEK,
+                    fromMs = oldPosition.positionMs,
+                    toMs = newPosition.positionMs,
+                )
+            }
         }
+    }
+
+    private fun startTelemetry(force: Boolean = false) {
+        val song = telemetrySong ?: return
+        if (telemetryStarted && !force) return
+        telemetryStarted = true
+        telemetryPaused = false
+        telemetryPositionMs = player.currentPosition.coerceAtLeast(0L)
+        recordTelemetry(
+            TelemetryEventType.PLAY,
+            positionMs = telemetryPositionMs,
+        )
+        if (telemetryPositionJob == null) {
+            telemetryPositionJob =
+                scope.launch {
+                    while (isActive) {
+                        delay(1_000)
+                        if (telemetryStarted) {
+                            telemetryPositionMs = player.currentPosition.coerceAtLeast(0L)
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun finishTelemetry(type: TelemetryEventType) {
+        if (telemetrySong == null || !telemetryStarted) {
+            telemetrySong = null
+            telemetryStarted = false
+            telemetryPaused = false
+            return
+        }
+        recordTelemetry(
+            type,
+            positionMs = telemetryPositionMs,
+            completed = type == TelemetryEventType.COMPLETE,
+        )
+        telemetrySong = null
+        telemetryStarted = false
+        telemetryPaused = false
+        telemetryPositionJob?.cancel()
+        telemetryPositionJob = null
+    }
+
+    private fun recordTelemetry(
+        type: TelemetryEventType,
+        positionMs: Long? = null,
+        durationMs: Long? = null,
+        fromMs: Long? = null,
+        toMs: Long? = null,
+        completed: Boolean = false,
+    ) {
+        val song = telemetrySong ?: return
+        val playlist =
+            when (val queue = currentQueue) {
+                is ListQueue -> queue.title
+                else -> null
+            }
+        val seed = runCatching { player.getMediaItemAt(0).mediaId }.getOrNull()
+        val event =
+            TelemetryStore.Event(
+                type = type,
+                songId = song.id,
+                title = song.title,
+                artist = song.artists.joinToString { it.name },
+                playlist = playlist,
+                seed = seed,
+                positionMs = positionMs ?: telemetryPositionMs,
+                durationMs = durationMs ?: song.duration?.toLong()?.times(1000),
+                fromMs = fromMs,
+                toMs = toMs,
+                completed = completed,
+            )
+        scope.launch(Dispatchers.IO) { TelemetryStore.record(this@MusicService, event) }
     }
 
     private fun scheduleCrossfade() {

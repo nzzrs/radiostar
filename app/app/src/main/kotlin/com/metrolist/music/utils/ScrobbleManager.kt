@@ -5,7 +5,8 @@
 
 package com.metrolist.music.utils
 
-import com.metrolist.lastfm.LastFM
+import android.content.Context
+import com.metrolist.music.recommend.ScrobbleSink
 import com.metrolist.music.models.MediaMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -14,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.min
 
 class ScrobbleManager(
+    private val context: Context,
     private val scope: CoroutineScope,
     var minSongDuration: Int = 30,
     var scrobbleDelayPercent: Float = 0.5f,
@@ -108,11 +110,12 @@ class ScrobbleManager(
 
     private fun scrobbleSong(metadata: MediaMetadata) {
         scope.launch {
-            LastFM.scrobble(
+            ScrobbleSink.scrobble(
+                context = context,
                 artist = metadata.artists.joinToString { it.name },
                 track = metadata.title,
-                duration = metadata.duration,
-                timestamp = songStartedAt,
+                durationSeconds = metadata.duration,
+                timestampSeconds = songStartedAt,
                 album = metadata.album?.title,
             )
         }
@@ -120,11 +123,12 @@ class ScrobbleManager(
 
     private fun updateNowPlaying(metadata: MediaMetadata) {
         scope.launch {
-            LastFM.updateNowPlaying(
+            ScrobbleSink.nowPlaying(
+                context = context,
                 artist = metadata.artists.joinToString { it.name },
                 track = metadata.title,
                 album = metadata.album?.title,
-                duration = metadata.duration
+                durationSeconds = metadata.duration,
             )
         }
     }

@@ -19,6 +19,7 @@ import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.extensions.reversed
 import com.metrolist.music.extensions.toEnum
+import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.utils.dataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -44,8 +45,23 @@ constructor(
     @ApplicationContext context: Context,
     database: MusicDatabase,
     savedStateHandle: SavedStateHandle,
+    private val radioStarRepository: RadioStarPlaylistRepository,
 ) : ViewModel() {
     val playlistId = savedStateHandle.get<String>("playlistId")!!
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
+    /** Pull-to-refresh for a generated RadioStar playlist. */
+    fun refreshGenerated() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            withContext(Dispatchers.IO) {
+                radioStarRepository.refreshPlaylist(playlistId)
+            }
+            _isRefreshing.value = false
+        }
+    }
     val playlist =
         database
             .playlist(playlistId)
