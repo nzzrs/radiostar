@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.room.withTransaction
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.music.constants.RadioStarServerKey
@@ -44,11 +45,12 @@ data class GoBeyondRecommendation(
     val title: String,
     val reason: String,
     val accentHue: Int,
+    val art: GoBeyondArt = GoBeyondArt.Abstract(accentHue),
 )
 
 data class GoBeyondFeed(
     val sections: List<GoBeyondSectionFeed>,
-    val recommended: GoBeyondRecommendation?,
+    val recommended: List<GoBeyondRecommendation>,
     val insights: TelemetryInsights,
 )
 
@@ -69,6 +71,7 @@ class GoBeyondRepository
         @ApplicationContext private val context: Context,
         private val database: MusicDatabase,
         private val auth: ServerAuthStore,
+        private val originResolver: ArtistOriginResolver,
     ) {
         suspend fun feed(): GoBeyondFeed =
             withContext(Dispatchers.IO) {
@@ -76,12 +79,97 @@ class GoBeyondRepository
                 val imports = runCatching { ListenStore(context).load() }.getOrDefault(emptyList())
                 val insights = TelemetryInsights.fromEvents(events)
                 val artistNames = topArtistNames(insights, imports)
-                val artistCards =
-                    if (artistNames.isEmpty()) {
-                        GoBeyondCatalog.artistCards(GoBeyondCatalog.defaultArtists)
+                val originCodes = originResolver.cached(artistNames.take(10))
+                val countryHints =
+                    originCodes.values
+                        .filterNotNull()
+                        .groupingBy { it }
+                        .eachCount()
+                        .mapNotNull { (code, count) ->
+                            GoBeyondGeography.country(code)?.name?.let { name ->
+                                name to (count * 0.8).coerceAtMost(1.6)
+                            }
+                        }
+                        .toMap()
+                val enrichedInsights =
+                    if (countryHints.isEmpty()) {
+                        insights
                     } else {
-                        GoBeyondCatalog.artistCards(artistNames)
+                        insights.copy(gatewayAffinity = insights.gatewayAffinity + countryHints)
                     }
+                val photoUrls =
+                    artistNames.associateWith { name ->
+                        artistArtwork(name)
+                    }
+                val artistCards = GoBeyondCatalog.artistCards(artistNames, photoUrls)
+                val orderedEvents = events.sortedByDescending { it.at }.take(200)
+                val recentImports = imports.sortedByDescending { it.listenedAt }.take(200)
+                val taste =
+                    GoBeyondTasteProfile(
+                        insights = enrichedInsights,
+                        topArtists = artistNames.take(10),
+                        recentTitles = orderedEvents.mapNotNull { it.title }.take(8),
+                        recentAlbums = orderedEvents.mapNotNull { it.album }.take(4),
+                        recentArtists = orderedEvents.mapNotNull { it.artist }.take(8),
+                        importedTitles = recentImports.map { it.title }.take(6),
+                        importedArtists = recentImports.map { it.artist }.take(6),
+                        importedAlbums = recentImports.mapNotNull { it.album }.take(3),
+                    )
+                val countryCandidates =
+                    GoBeyondCatalog
+                        .cards(GoBeyondSection.COUNTRY)
+                        .sortedWith(
+                            compareByDescending<GoBeyondCard> { enrichedInsights.affinity(it.title) }
+                                .thenBy { Math.floorMod(it.id.hashCode(), 10_000) },
+                        )
+                        .take(COUNTRY_POOL)
+                val genreCandidates =
+                    GoBeyondCatalog
+                        .cards(GoBeyondSection.GENRE)
+                        .sortedWith(
+                            compareByDescending<GoBeyondCard> { insights.affinity(it.title) }
+                                .thenBy { Math.floorMod(it.id.hashCode(), 10_000) },
+                        )
+                        .take(GENRE_POOL)
+                val countryCards =
+                    GoBeyondPersonalize
+                        .orderCards(countryCandidates, taste)
+                        .take(SECTION_CARDS)
+                val genreCards =
+                    GoBeyondPersonalize
+                        .orderCards(genreCandidates, taste)
+                        .take(SECTION_CARDS)
+                val periodCards =
+                    GoBeyondPersonalize
+                        .orderCards(GoBeyondCatalog.cards(GoBeyondSection.PERIOD), taste)
+                        .take(SECTION_CARDS)
+                val colorCards =
+                    GoBeyondPersonalize
+                        .orderCards(GoBeyondCatalog.cards(GoBeyondSection.COLOR), taste)
+                        .take(SECTION_CARDS)
+                val moodCards =
+                    GoBeyondPersonalize
+                        .orderCards(GoBeyondCatalog.cards(GoBeyondSection.MOOD), taste)
+                        .take(SECTION_CARDS)
+                val allCards =
+                    countryCards +
+                        genreCards +
+                        artistCards +
+                        periodCards +
+                        colorCards +
+                        moodCards
+                val recommendations =
+                    GoBeyondPersonalize
+                        .suggestions(allCards, taste, limit = RECOMMENDATION_CARDS)
+                        .map { suggestion ->
+                            GoBeyondRecommendation(
+                                selection = suggestion.card.selection,
+                                title = suggestion.card.title,
+                                reason = suggestion.reason,
+                                accentHue = suggestion.card.accentHue,
+                                art = suggestion.card.art,
+                            )
+                        }
 
                 val sections =
                     listOf(
@@ -89,50 +177,44 @@ class GoBeyondRepository
                             GoBeyondSection.COUNTRY,
                             "Start with a place",
                             "Pick a country and keep the songs that fit your taste.",
-                            GoBeyondCatalog.cards(GoBeyondSection.COUNTRY),
-                            insights,
+                            countryCards,
                         ),
                         sectionFeed(
                             GoBeyondSection.GENRE,
                             "Start with a sound",
                             "A genre is a doorway. Familiar records stay close, new ones lead.",
-                            GoBeyondCatalog.cards(GoBeyondSection.GENRE),
-                            insights,
+                            genreCards,
                         ),
                         sectionFeed(
                             GoBeyondSection.ARTIST,
                             "Go deeper with an artist",
-                            "Their catalogue and the artists around them, beyond what you already play.",
+                            "Their catalogue, from the artists you actually play.",
                             artistCards,
-                            insights,
                         ),
                         sectionFeed(
                             GoBeyondSection.PERIOD,
                             "Start with a time",
                             "A decade or your own year range, filtered through your listening.",
-                            GoBeyondCatalog.cards(GoBeyondSection.PERIOD),
-                            insights,
+                            periodCards,
                         ),
                         sectionFeed(
                             GoBeyondSection.COLOR,
                             "Start with a colour",
-                            "Music can sound purple, silver or warm gold. Start from an atmosphere.",
-                            GoBeyondCatalog.cards(GoBeyondSection.COLOR),
-                            insights,
+                            "Music that sounds purple, silver or warm gold, not songs named after a colour.",
+                            colorCards,
                         ),
                         sectionFeed(
                             GoBeyondSection.MOOD,
                             "Start with a feeling",
                             "Choose the emotional tone and let the playlist do the rest.",
-                            GoBeyondCatalog.cards(GoBeyondSection.MOOD),
-                            insights,
+                            moodCards,
                         ),
                     )
 
                 GoBeyondFeed(
                     sections = sections,
-                    recommended = recommendation(insights, artistCards),
-                    insights = insights,
+                    recommended = recommendations,
+                    insights = enrichedInsights,
                 )
             }
 
@@ -140,14 +222,16 @@ class GoBeyondRepository
          * Builds and stores an ordinary local playlist. The stable id means a
          * second tap refreshes the same journey instead of duplicating it.
          */
-        suspend fun generate(selection: GoBeyondSelection): String =
+        suspend fun generate(rawSelection: GoBeyondSelection): String =
             withContext(Dispatchers.IO) {
+                val selection = GoBeyondResolver.resolve(rawSelection)
                 require(!selection.isBlank()) { "empty Go Beyond selection" }
                 val playlistId = selection.stableId()
-                val found = search(selection)
-                if (found.isEmpty()) {
+                val foundPool = search(selection)
+                if (foundPool.isEmpty()) {
                     error("No tracks found for ${selection.displayTitle()}")
                 }
+                val found = foundPool.map { it.song }
 
                 val events = runCatching { TelemetryStore.load(context) }.getOrDefault(emptyList())
                 val insights = TelemetryInsights.fromEvents(events)
@@ -205,6 +289,7 @@ class GoBeyondRepository
                             artists = song.artists.map { it.name },
                             durationSeconds = song.duration,
                             vector = vectors?.getOrNull(index)?.toDoubles(),
+                            targetScore = foundPool[index].targetScore,
                         )
                     }
                 val rankContext =
@@ -212,11 +297,13 @@ class GoBeyondRepository
                         bias = TelemetryTaste.fromEvents(events),
                         insights = insights,
                         promptVector = promptVector,
+                        promptTerms = GoBeyondResolver.colorPromptTerms(selection.color),
+                        literalTerms = GoBeyondResolver.literalColorTerms(selection.color),
                         heardIds = heardIds,
                         recentIds = recentIds,
                         skippedIds = skippedIds,
                         likedIds = likedIds,
-                        maxPerArtist = MAX_PER_ARTIST,
+                        maxPerArtist = if (selection.artist != null) 0 else MAX_PER_ARTIST,
                         limit = SLATE_SIZE,
                     )
                 val chosen =
@@ -251,41 +338,188 @@ class GoBeyondRepository
 
         fun isGoBeyondPlaylist(playlistId: String): Boolean = playlistId.startsWith(ID_PREFIX)
 
-        private suspend fun search(selection: GoBeyondSelection): List<SongItem> {
-            val merged = LinkedHashMap<String, SongItem>()
-            for (query in selection.searchQueries().take(4)) {
-                val result =
-                    runCatching {
-                        YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
-                    }.getOrNull() ?: continue
-                result.items
-                    .asSequence()
-                    .filterIsInstance<SongItem>()
-                    .filter { !it.isEpisode }
-                    .filter { !it.isVideoSong }
-                    .filter { it.id.isNotBlank() && it.title.isNotBlank() }
-                    .filter { it.artists.any { artist -> artist.name.isNotBlank() } }
-                    .take(40)
-                    .forEach { merged.putIfAbsent(it.id, it) }
-                if (merged.size >= MAX_CANDIDATES) break
+        private suspend fun search(selection: GoBeyondSelection): List<PooledSong> {
+            val merged = LinkedHashMap<String, PooledSong>()
+            val artist = selection.artist?.trim()?.takeIf(String::isNotBlank)
+            if (artist != null) {
+                for (query in selection.artistSearchQueries().take(ARTIST_QUERIES)) {
+                    addSongResults(
+                        query = query,
+                        targetScore = 1.0,
+                        merged = merged,
+                        artistFilter = artist,
+                    )
+                }
+                return merged.values.take(MAX_CANDIDATES)
+            }
+
+            if (selection.country != null) {
+                val playlistPool = LinkedHashMap<String, PooledSong>()
+                for (query in selection.countrySearchQueries().take(COUNTRY_PLAYLIST_QUERIES)) {
+                    addPlaylistResults(query = query, targetScore = 1.0, merged = playlistPool)
+                }
+                val songPool = LinkedHashMap<String, PooledSong>()
+                for (query in selection.countrySearchQueries().take(COUNTRY_SONG_QUERIES)) {
+                    addSongResults(query = query, targetScore = 0.75, merged = songPool)
+                }
+
+                // A curated country playlist is only trustworthy when its
+                // artists also show up in country-targeted song search. This
+                // removes international tracks that ride along in a playlist
+                // titled "Afghan music".
+                val countryArtists =
+                    songPool.values
+                        .mapNotNull { pooled ->
+                            pooled.song.artists.firstOrNull()?.name?.let(::normalizeName)
+                        }
+                        .filter { it.isNotBlank() }
+                        .toSet()
+                val verifiedPlaylist =
+                    playlistPool.values.filter { pooled ->
+                        val key = pooled.song.artists.firstOrNull()?.name?.let(::normalizeName).orEmpty()
+                        key.isNotBlank() && key in countryArtists
+                    }
+                val candidatePool =
+                    when {
+                        verifiedPlaylist.size >= COUNTRY_CURATED_MIN -> verifiedPlaylist
+                        songPool.isNotEmpty() -> songPool.values.toList()
+                        else -> playlistPool.values.toList()
+                    }
+                val targetCode = GoBeyondGeography.byName(selection.country)?.code
+                val originFiltered =
+                    if (targetCode == null) {
+                        candidatePool
+                    } else {
+                        val uniqueArtists =
+                            candidatePool
+                                .mapNotNull { it.song.artists.firstOrNull()?.name }
+                                .distinct()
+                                .take(ORIGIN_ARTISTS)
+                        val origins = originResolver.resolve(uniqueArtists)
+                        candidatePool.filter { pooled ->
+                            val key =
+                                pooled.song.artists.firstOrNull()?.name
+                                    ?.let(::normalizeName)
+                                    .orEmpty()
+                            val origin = origins[key]
+                            origin == null || origin == targetCode
+                        }
+                    }
+                return originFiltered.ifEmpty { candidatePool }.take(MAX_CANDIDATES)
+            }
+
+            for (query in selection.searchQueries().take(GENERAL_QUERIES)) {
+                addSongResults(query = query, targetScore = 0.60, merged = merged)
             }
             if (merged.size < RADIO_TRIGGER) {
                 merged.values.take(RADIO_SEEDS).forEach { seed ->
                     val result =
                         runCatching {
-                            YouTube.next(WatchEndpoint(videoId = seed.id)).getOrNull()
+                            YouTube.next(WatchEndpoint(videoId = seed.song.id)).getOrNull()
                         }.getOrNull() ?: return@forEach
                     result.items
                         .asSequence()
-                        .filter { !it.isEpisode }
-                        .filter { it.id.isNotBlank() && it.title.isNotBlank() }
-                        .filter { it.artists.any { artist -> artist.name.isNotBlank() } }
+                        .filterIsInstance<SongItem>()
+                        .filter(::isUsableSong)
                         .take(40)
-                        .forEach { merged.putIfAbsent(it.id, it) }
+                        .forEach { song -> merge(merged, song, 0.35) }
                 }
             }
             return merged.values.take(MAX_CANDIDATES)
         }
+
+        private suspend fun addSongResults(
+            query: String,
+            targetScore: Double,
+            merged: LinkedHashMap<String, PooledSong>,
+            artistFilter: String? = null,
+        ) {
+            val result =
+                runCatching {
+                    YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
+                }.getOrNull() ?: return
+            result.items
+                .asSequence()
+                .filterIsInstance<SongItem>()
+                .filter(::isUsableSong)
+                .filter { song ->
+                    artistFilter == null || song.artists.any { matchesArtist(it.name, artistFilter) }
+                }
+                .filter { song ->
+                    artistFilter == null || !looksLikeCover(song.title)
+                }
+                .take(40)
+                .forEach { song -> merge(merged, song, targetScore) }
+        }
+
+        private suspend fun addPlaylistResults(
+            query: String,
+            targetScore: Double,
+            merged: LinkedHashMap<String, PooledSong>,
+        ) {
+            val playlists =
+                runCatching {
+                    YouTube.search(query, YouTube.SearchFilter.FILTER_COMMUNITY_PLAYLIST).getOrNull()
+                }.getOrNull()
+                    ?.items
+                    ?.filterIsInstance<PlaylistItem>()
+                    ?.take(1)
+                    .orEmpty()
+            for (playlist in playlists) {
+                val page = runCatching { YouTube.playlist(playlist.id).getOrNull() }.getOrNull() ?: continue
+                page.songs
+                    .asSequence()
+                    .filter(::isUsableSong)
+                    .take(60)
+                    .forEach { song -> merge(merged, song, targetScore) }
+            }
+        }
+
+        private fun isUsableSong(song: SongItem): Boolean =
+            !song.isEpisode &&
+                !song.isVideoSong &&
+                song.id.isNotBlank() &&
+                song.title.isNotBlank() &&
+                song.artists.any { it.name.isNotBlank() }
+
+        private fun merge(
+            merged: LinkedHashMap<String, PooledSong>,
+            song: SongItem,
+            targetScore: Double,
+        ) {
+            val existing = merged[song.id]
+            if (existing == null || targetScore > existing.targetScore) {
+                merged[song.id] = PooledSong(song, targetScore)
+            }
+        }
+
+        private fun matchesArtist(
+            candidate: String,
+            target: String,
+        ): Boolean {
+            val a = normalizeName(candidate)
+            val b = normalizeName(target)
+            if (a.isBlank() || b.isBlank()) return false
+            return a == b ||
+                a.startsWith("$b ") ||
+                b.startsWith("$a ") ||
+                GoBeyondFuzzy.ratio(a, b) >= 0.82
+        }
+
+        private fun looksLikeCover(title: String): Boolean {
+            val value = title.lowercase(Locale.ROOT)
+            return value.contains("tribute") ||
+                value.contains("in the style of") ||
+                value.contains("cover") ||
+                value.contains("karaoke")
+        }
+
+        private fun normalizeName(value: String): String =
+            java.text.Normalizer
+                .normalize(value.lowercase(Locale.ROOT), java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{M}+"), "")
+                .replace(Regex("[^a-z0-9]+"), " ")
+                .trim()
 
         private suspend fun writePlaylist(
             playlistId: String,
@@ -360,70 +594,29 @@ class GoBeyondRepository
             title: String,
             subtitle: String,
             cards: List<GoBeyondCard>,
-            insights: TelemetryInsights,
         ) = GoBeyondSectionFeed(
             section = section,
             title = title,
             subtitle = subtitle,
-            cards =
-                cards.sortedWith(
-                    compareByDescending<GoBeyondCard> { insights.affinity(it.title) },
-                ),
+            cards = cards,
         )
 
-        private fun recommendation(
-            insights: TelemetryInsights,
-            artistCards: List<GoBeyondCard>,
-        ): GoBeyondRecommendation? {
-            val bestFacet =
-                insights.gatewayAffinity
-                    .filterValues { it > 0.12 }
-                    .maxByOrNull { it.value }
-                    ?.key
-            val bestCard = bestFacet?.let { GoBeyondCatalog.cardForValue(it) }
-            if (bestCard != null) {
-                return GoBeyondRecommendation(
-                    selection = bestCard.selection,
-                    title = bestCard.title,
-                    reason = "Because you keep coming back to ${bestCard.title}.",
-                    accentHue = bestCard.accentHue,
-                )
-            }
-
-            artistCards.firstOrNull()?.let { card ->
-                return GoBeyondRecommendation(
-                    selection = card.selection,
-                    title = card.title,
-                    reason = "The artist you play most. Go deeper than the familiar tracks.",
-                    accentHue = card.accentHue,
-                )
-            }
-
-            val mood = suggestedMood(insights)
-            val moodCard = GoBeyondCatalog.cards(GoBeyondSection.MOOD).firstOrNull { it.title == mood }
-            return moodCard?.let {
-                GoBeyondRecommendation(
-                    selection = it.selection,
-                    title = it.title,
-                    reason = "Your listening leans ${it.title.lowercase(Locale.ROOT)} around this hour.",
-                    accentHue = it.accentHue,
-                )
-            }
-        }
-
-        private fun suggestedMood(insights: TelemetryInsights): String {
-            val hour = insights.bestHour
-            return when {
-                hour == null -> "Dreamy"
-                hour in 5..11 && insights.noveltyAppetite >= 0.5 -> "Euphoric"
-                hour in 5..11 -> "Focus"
-                hour in 12..16 && insights.noveltyAppetite >= 0.5 -> "Playful"
-                hour in 12..16 -> "Nostalgic"
-                hour in 17..21 && insights.noveltyAppetite >= 0.5 -> "Dreamy"
-                hour in 17..21 -> "Romantic"
-                insights.skipRate >= 0.4 -> "Calm"
-                else -> "Melancholic"
-            }
+        private suspend fun artistArtwork(name: String): String? {
+            val artist = runCatching { database.artistByName(name) }.getOrNull() ?: return null
+            artist.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { return it }
+            val now = LocalDateTime.now()
+            return runCatching {
+                database
+                    .mostPlayedSongsByArtist(
+                        artistId = artist.id,
+                        fromTimeStamp = LocalDateTime.of(1970, 1, 1, 0, 0),
+                        toTimeStamp = now,
+                    ).first()
+                    .firstOrNull()
+                    ?.song
+                    ?.thumbnailUrl
+                    ?.takeIf { it.isNotBlank() }
+            }.getOrNull()
         }
 
         private fun topArtistNames(
@@ -451,6 +644,11 @@ class GoBeyondRepository
                 .take(MAX_ARTIST_CARDS)
         }
 
+        private data class PooledSong(
+            val song: SongItem,
+            val targetScore: Double,
+        )
+
         private fun selectionKey(playlistId: String) = stringPreferencesKey("radioStarGoBeyondSelection_$playlistId")
 
         companion object {
@@ -460,7 +658,17 @@ class GoBeyondRepository
             const val MAX_CANDIDATES = 120
             const val RADIO_TRIGGER = 60
             const val RADIO_SEEDS = 2
+            const val ARTIST_QUERIES = 6
+            const val COUNTRY_PLAYLIST_QUERIES = 2
+            const val COUNTRY_SONG_QUERIES = 5
+            const val COUNTRY_CURATED_MIN = 15
+            const val ORIGIN_ARTISTS = 200
+            const val GENERAL_QUERIES = 4
             const val MAX_ARTIST_CARDS = 12
+            const val SECTION_CARDS = 16
+            const val COUNTRY_POOL = 40
+            const val GENRE_POOL = 32
+            const val RECOMMENDATION_CARDS = 8
             const val MAX_PER_ARTIST = 2
             const val RECENT_MS = 30L * 86_400_000L
             const val SKIP_MEMORY_MS = 90L * 86_400_000L

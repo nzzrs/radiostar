@@ -460,6 +460,13 @@
     <string name="go_beyond_free_text">Anything else</string>
     <string name="go_beyond_create">Build journey</string>
     <string name="go_beyond_any">Any</string>
+    <string name="go_beyond_all_countries">All countries</string>
+    <string name="go_beyond_all_countries_desc">Search every country and flag.</string>
+    <string name="go_beyond_custom_genre">Another genre</string>
+    <string name="go_beyond_custom_genre_desc">Type a genre we have not listed.</string>
+    <string name="go_beyond_search_countries">Search countries</string>
+    <string name="go_beyond_search_genres">Search or type a genre</string>
+    <string name="go_beyond_use_genre">Use “%1$s”</string>
     <string name="radiostar_service_listens">Listens reported by the service</string>
     <string name="radiostar_service_total_lag">The service reports %1$d listens, but its API returned %2$d unique listens. The service counter can lag; the local imported history is authoritative.</string>
     <string name="radiostar_import_clear">Delete imported listens</string>

@@ -452,81 +452,64 @@ the derived listening signal, and can delete the local file.
 
 ### 6.7 Go Beyond
 
-`Search` has a second tab beside the search field. It presents six browsable
-areas — country, genre, artist, period, colour, mood — plus a custom builder
-that combines any of them, including a free year range.
+`Search` has a second tab beside the search field. It presents country, genre,
+artist, period, colour and mood sections plus a custom builder.
+
+- Country uses all ISO 3166 countries from `Locale.getISOCountries()`, with
+  English names, flag emoji, demonyms and fuzzy aliases. A searchable picker
+  lists every country; the section row shows personalized picks first.
+  Country journeys are origin-checked: `ArtistOriginResolver` batches artist
+  names against MusicBrainz, caches ISO country codes locally for 30 days and
+  drops artists known to come from a different country. Unknown origins stay
+  only as a fallback, so a playlist cannot silently become international.
+- Genres are a broad built-in catalog (about 80 entries) plus a search-or-type
+  picker with a `+` action for any custom genre. `GoBeyondResolver` maps typos
+  and aliases such as `hihop` or `shoegaz` to canonical values and sanitizes the
+  rest.
+- Period supports predefined decades and a free year range.
+- Colour and mood are atmospheres, not title keywords. Colour queries use
+  descriptors such as hazy, velvet, psychedelic and slow; the colour name is
+  never sent as a search keyword and tracks whose title or artist literally
+  contains it receive a penalty.
+- `GoBeyondFuzzy` and `GoBeyondResolver` accept typos, accents, aliases and
+  reordered words (`purpel`, `shoegaz`, `melancolic`, `Brasil`, `hihop`).
+  Stupid or unsafe input is sanitized or dropped.
 
 Tapping a card:
 
-1. builds two or three YouTube Music search phrases from the selected facets;
+1. builds target-specific searches. Artist journeys search only that artist's
+   catalogue and then hard-filter every result to the artist (covers and
+   tributes are removed). Country journeys search the demonym and mine curated
+   country playlists; when enough curated tracks exist, they become the whole
+   candidate pool. This prevents a "Brazil" journey from becoming generic
+   international pop.
 2. optionally embeds the category prompt with `POST /embed/text` and the
    candidates with `POST /embed` on the user's own server;
-3. ranks candidates with `GoBeyondRanker`: semantic similarity, telemetry
-   song/artist scores, recent and skipped memory, a small unheard-artist
-   bonus and an artist cap;
-4. writes the result as a normal local playlist with a stable
-   `LP_RS_GO_*` id, so a second tap replaces the same journey.
+3. ranks only inside that target pool with `GoBeyondRanker`: semantic
+   similarity, telemetry song/artist scores, recent and skipped memory, a small
+   unheard-artist bonus and an artist cap (disabled for artist journeys);
+4. writes the result as a normal local playlist with a stable `LP_RS_GO_*` id.
+
+The landing view is personalized locally and cheaply. `GoBeyondPersonalize`
+combines telemetry gateway affinity, top/recent/imported artists and albums,
+active hours, skip rate and variety appetite to order every section and to
+produce a "Picked from your listening" row. It is fuzzy string matching and
+bounded arithmetic only: no network and no embedding call.
+
+Artwork is generated per card: flags for countries, artist photos from Room
+when present (initials or album art otherwise), abstract genre art, era rings
+with the decade label, literal colour palettes, and mood atmospheres. A title
+gradient keeps text readable over the reduced-opacity art. Cards use a fixed
+height so the Canvas artwork always has a measurable surface.
+
+The MusicBrainz lookup sends only artist names, is cached, and runs only for a
+country journey. It is best-effort: a network failure keeps the search/playlist
+provenance and generation continues. The landing view uses cache-only origin
+hints, never a network request.
 
 Playback is a normal `ListQueue`; the generated playlist name carries the
 facets, and `MusicService` copies them into telemetry. Pull-to-refresh rebuilds
-the same journey from the saved selection. Cards are ordered by facet affinity,
-and the “Picked from your listening” card prefers a facet with positive
-affinity, then the most played artist, then a mood inferred from the most
-active listening hour.
-
-## 7. Deployment View
-
-C4 deployment diagram: [`c4-model.md` §5](c4-model.md#5-deployment-view).
-
-- **Phone**: one APK, arm64-v8a, debug `link.nzrs.radiostar.dev`, release
-  `link.nzrs.radiostar` (unsigned in this repository).
-- **Laptop**: Python 3.12 venv, `server/app.py`, port 8787 on loopback.
-  Cloudflare Tunnel or Tailscale in front; the public hostname never exposes
-  the port directly.
-- **Scrobblers**: internet HTTPS from the phone; no laptop involvement.
-- **No cloud dependency**: without the laptop, playback still works; new
-  playlists using text embeddings are skipped until it is reachable. Local
-  audio analysis and the DJ continue.
-
-## 8. Cross-cutting Concepts
-
-### 8.1 Privacy and security
-
-- Audio buffers are ephemeral; never logged, written or uploaded.
-- Metadata sent to the embedding server is title/artist only; public transport
-  is HTTPS through Cloudflare Tunnel or Tailscale.
-- The embedding server requires a per-device Bearer token. The refresh token is
-  encrypted with Android Keystore and excluded from backup; access tokens stay
-  in memory. Pairing codes are single-use and expire.
-- Scrobbler tokens are device-local; redact them from logs and crash reports.
-- Release builds reject cleartext HTTP; debug builds allow it only for local
-  development.
-- No analytics SDK; advanced telemetry is local-only and opt-in. There is no
-  external upload path in this build.
-
-### 8.2 Error handling
-
-- Generation failure leaves old playlists and old stamps.
-- Import failure leaves the checkpoint and retries with backoff.
-- Embedding server failure returns null; the playlist generation aborts
-  cleanly instead of writing partial lists.
-- Playback analysis failures are logged and never block audio.
-
-### 8.3 Performance budgets
-
-| Operation | Budget / measured |
-| --- | --- |
-| CLAP embedding | p50 172 ms, p95 194 ms per 10 s window (A52s) |
-| Tempo/key | ~294 ms, once per track |
-| DPP | milliseconds for 30–160 candidates |
-| Text embedding | ~1.1 s cold/item, ~4 ms cached (laptop) |
-| Playlist refresh | background; daily/weekly only |
-
-### 8.4 i18n, accessibility, licensing
-
-- UI strings in English and Spanish; code/docs English.
-- DJ wheel has a non-radial segmented fallback; cards have content labels.
-- Every model/library credit is kept in the README/decisions; GPL-3.0 fork.
+the same journey from the saved selection.
 
 ## 9. Architecture Decisions
 

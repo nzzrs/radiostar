@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.screens.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,15 +59,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.metrolist.music.R
 import com.metrolist.music.recommend.GoBeyondCard
 import com.metrolist.music.recommend.GoBeyondCatalog
 import com.metrolist.music.recommend.GoBeyondFeed
+import com.metrolist.music.recommend.GoBeyondFuzzy
+import com.metrolist.music.recommend.GoBeyondGeography
+import com.metrolist.music.recommend.GoBeyondRecommendation
 import com.metrolist.music.recommend.GoBeyondSection
 import com.metrolist.music.recommend.GoBeyondSelection
-import com.metrolist.music.ui.component.GeneratedPlaylistArtwork
+import com.metrolist.music.ui.component.GoBeyondCardArtwork
 import com.metrolist.music.viewmodels.GoBeyondEvent
 import com.metrolist.music.viewmodels.GoBeyondUiState
 import com.metrolist.music.viewmodels.GoBeyondViewModel
@@ -84,6 +90,8 @@ fun GoBeyondScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var customOpen by rememberSaveable { mutableStateOf(false) }
+    var countryPickerOpen by rememberSaveable { mutableStateOf(false) }
+    var genrePickerOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -103,7 +111,9 @@ fun GoBeyondScreen(
                     feed = feed,
                     onCard = { card -> viewModel.generate(card.selection) },
                     onCustom = { customOpen = true },
-                    onRecommended = { viewModel.generate(it) },
+                    onRecommended = { viewModel.generate(it.selection) },
+                    onAllCountries = { countryPickerOpen = true },
+                    onCustomGenre = { genrePickerOpen = true },
                 )
 
             state.loading ->
@@ -168,6 +178,26 @@ fun GoBeyondScreen(
         }
     }
 
+    if (countryPickerOpen) {
+        CountryPickerDialog(
+            onDismiss = { countryPickerOpen = false },
+            onSelect = { country ->
+                countryPickerOpen = false
+                viewModel.generate(GoBeyondSelection(country = country.name))
+            },
+        )
+    }
+
+    if (genrePickerOpen) {
+        GenrePickerDialog(
+            onDismiss = { genrePickerOpen = false },
+            onSelect = { genre ->
+                genrePickerOpen = false
+                viewModel.generate(GoBeyondSelection(genre = genre))
+            },
+        )
+    }
+
     if (customOpen) {
         val artists =
             state.feed
@@ -193,7 +223,9 @@ private fun GoBeyondContent(
     feed: GoBeyondFeed,
     onCard: (GoBeyondCard) -> Unit,
     onCustom: () -> Unit,
-    onRecommended: (GoBeyondSelection) -> Unit,
+    onRecommended: (GoBeyondRecommendation) -> Unit,
+    onAllCountries: () -> Unit,
+    onCustomGenre: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -225,21 +257,27 @@ private fun GoBeyondContent(
             }
         }
 
-        feed.recommended?.let { recommendation ->
+        if (feed.recommended.isNotEmpty()) {
             item(key = "go_beyond_recommended") {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(top = 8.dp)) {
                     Text(
                         text = stringResource(R.string.go_beyond_recommended),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp),
                     )
                     Spacer(Modifier.size(8.dp))
-                    RecommendedCard(
-                        title = recommendation.title,
-                        reason = recommendation.reason,
-                        hue = recommendation.accentHue,
-                        onClick = { onRecommended(recommendation.selection) },
-                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(feed.recommended, key = { it.title + it.reason }) { recommendation ->
+                            RecommendedCard(
+                                recommendation = recommendation,
+                                onClick = { onRecommended(recommendation) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -272,6 +310,29 @@ private fun GoBeyondContent(
                     ) {
                         items(section.cards, key = { it.id }) { card ->
                             JourneyCard(card = card, onClick = { onCard(card) })
+                        }
+                        when (section.section) {
+                            GoBeyondSection.COUNTRY -> {
+                                item(key = "all_countries") {
+                                    PickerCard(
+                                        title = stringResource(R.string.go_beyond_all_countries),
+                                        subtitle = stringResource(R.string.go_beyond_all_countries_desc),
+                                        icon = R.drawable.language,
+                                        onClick = onAllCountries,
+                                    )
+                                }
+                            }
+                            GoBeyondSection.GENRE -> {
+                                item(key = "custom_genre") {
+                                    PickerCard(
+                                        title = stringResource(R.string.go_beyond_custom_genre),
+                                        subtitle = stringResource(R.string.go_beyond_custom_genre_desc),
+                                        icon = R.drawable.add,
+                                        onClick = onCustomGenre,
+                                    )
+                                }
+                            }
+                            else -> Unit
                         }
                     }
                 }
@@ -353,23 +414,31 @@ private fun InsightPill(
 
 @Composable
 private fun RecommendedCard(
-    title: String,
-    reason: String,
-    hue: Int,
+    recommendation: GoBeyondRecommendation,
     onClick: () -> Unit,
 ) {
     ElevatedCard(
         onClick = onClick,
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.width(244.dp).height(154.dp),
     ) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 128.dp)) {
-            GeneratedPlaylistArtwork(
-                seeds = listOf(title.hashCode()),
-                accent = colorFor(hue),
-                opacity = 0.9f,
+        Box(Modifier.fillMaxWidth().height(154.dp)) {
+            GoBeyondCardArtwork(
+                card =
+                    GoBeyondCard(
+                        id = "recommended-${recommendation.title}",
+                        section = recommendation.selection.facets.firstOrNull()?.section ?: GoBeyondSection.CUSTOM,
+                        title = recommendation.title,
+                        subtitle = recommendation.reason,
+                        description = recommendation.reason,
+                        selection = recommendation.selection,
+                        accentHue = recommendation.accentHue,
+                        semanticPrompt = recommendation.title,
+                        art = recommendation.art,
+                    ),
+                opacity = 0.8f,
                 modifier = Modifier.fillMaxSize(),
             )
             Column(
@@ -379,26 +448,67 @@ private fun RecommendedCard(
                         .fillMaxWidth()
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.84f)),
+                                listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
                             ),
-                        ).padding(18.dp),
+                        ).padding(14.dp),
             ) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    text = recommendation.title,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = reason,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = recommendation.reason,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.size(10.dp))
-                Button(onClick = onClick) {
-                    Text(stringResource(R.string.go_beyond_start))
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun PickerCard(
+    title: String,
+    subtitle: String,
+    icon: Int,
+    onClick: () -> Unit,
+) {
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier.width(172.dp).height(132.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(14.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.size(10.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -452,15 +562,14 @@ private fun JourneyCard(
 ) {
     ElevatedCard(
         onClick = onClick,
-        modifier = Modifier.width(172.dp).heightIn(min = 132.dp),
+        modifier = Modifier.width(172.dp).height(132.dp),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 132.dp)) {
-            GeneratedPlaylistArtwork(
-                seeds = listOf(card.id.hashCode()),
-                accent = colorFor(card.accentHue),
+        Box(Modifier.fillMaxWidth().height(132.dp)) {
+            GoBeyondCardArtwork(
+                card = card,
                 opacity = 0.8f,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -509,6 +618,8 @@ private fun CustomJourneyDialog(
     var freeText by rememberSaveable { mutableStateOf("") }
     var fromText by rememberSaveable { mutableStateOf("") }
     var toText by rememberSaveable { mutableStateOf("") }
+    var showCountryPicker by rememberSaveable { mutableStateOf(false) }
+    var showGenrePicker by rememberSaveable { mutableStateOf(false) }
 
     val selection =
         GoBeyondSelection(
@@ -537,17 +648,15 @@ private fun CustomJourneyDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                FacetRow(
+                PickerField(
                     title = stringResource(R.string.go_beyond_country),
-                    values = GoBeyondCatalog.countries.map { it.title },
-                    selected = country,
-                    onSelect = { country = it },
+                    value = country,
+                    onClick = { showCountryPicker = true },
                 )
-                FacetRow(
+                PickerField(
                     title = stringResource(R.string.go_beyond_genre),
-                    values = GoBeyondCatalog.genres.map { it.title },
-                    selected = genre,
-                    onSelect = { genre = it },
+                    value = genre,
+                    onClick = { showGenrePicker = true },
                 )
                 OutlinedTextField(
                     value = artist,
@@ -636,6 +745,208 @@ private fun CustomJourneyDialog(
             }
         },
     )
+
+    if (showCountryPicker) {
+        CountryPickerDialog(
+            onDismiss = { showCountryPicker = false },
+            onSelect = { picked ->
+                country = picked.name
+                showCountryPicker = false
+            },
+        )
+    }
+    if (showGenrePicker) {
+        GenrePickerDialog(
+            onDismiss = { showGenrePicker = false },
+            onSelect = { picked ->
+                genre = picked
+                showGenrePicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun PickerField(
+    title: String,
+    value: String?,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value ?: stringResource(R.string.go_beyond_any),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.size(8.dp))
+        Icon(
+            painter = painterResource(R.drawable.expand_more),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun CountryPickerDialog(
+    onDismiss: () -> Unit,
+    onSelect: (com.metrolist.music.recommend.GoBeyondCountry) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val results = remember(query) { GoBeyondGeography.search(query, limit = 300) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.go_beyond_all_countries)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text(stringResource(R.string.go_beyond_search_countries)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.size(8.dp))
+                LazyColumn(modifier = Modifier.heightIn(max = 430.dp)) {
+                    items(results, key = { it.code }) { country ->
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelect(country) }
+                                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(country.flag, fontSize = 22.sp)
+                            Spacer(Modifier.size(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(country.name, style = MaterialTheme.typography.bodyLarge)
+                                if (!country.adjective.equals(country.name, ignoreCase = true)) {
+                                    Text(
+                                        text = country.adjective,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dismiss))
+            }
+        },
+    )
+}
+
+@Composable
+private fun GenrePickerDialog(
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val sanitized = remember(query) { GoBeyondFuzzy.sanitizeUserText(query) }
+    val results =
+        remember(query) {
+            if (sanitized.isBlank()) {
+                GoBeyondCatalog.genres
+            } else {
+                val ranked =
+                    GoBeyondFuzzy.rank(
+                        sanitized,
+                        GoBeyondCatalog.genres.flatMap { listOf(it.title) + it.aliases },
+                    )
+                ranked
+                    .filter { it.score >= 0.45 }
+                    .mapNotNull { match ->
+                        GoBeyondCatalog.genres.firstOrNull { entry ->
+                            entry.title.equals(match.value, ignoreCase = true) ||
+                                entry.aliases.any { it.equals(match.value, ignoreCase = true) }
+                        }
+                    }.distinctBy { it.title }
+            }
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.go_beyond_custom_genre)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text(stringResource(R.string.go_beyond_search_genres)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (sanitized.isNotBlank()) {
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(sanitized) }
+                                .padding(horizontal = 4.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.add),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.size(10.dp))
+                        Text(
+                            text = stringResource(R.string.go_beyond_use_genre, sanitized),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                }
+                LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                    items(results, key = { it.title }) { entry ->
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelect(entry.title) }
+                                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.title, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = entry.subtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dismiss))
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -667,9 +978,3 @@ private fun FacetRow(
     }
 }
 
-private fun colorFor(hue: Int): Color =
-    Color.hsl(
-        hue = hue.coerceIn(0, 359).toFloat(),
-        saturation = 0.58f,
-        lightness = 0.56f,
-    )
