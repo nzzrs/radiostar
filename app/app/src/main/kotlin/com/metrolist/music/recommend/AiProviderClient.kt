@@ -91,7 +91,7 @@ object AiProviderClient {
     private fun modelsUrl(baseUrl: String): String {
         var root = baseUrl.trim().trimEnd('/')
         if (root.isEmpty()) return ""
-        for (suffix in listOf("/chat/completions", "/completions", "/messages")) {
+        for (suffix in listOf("/chat/completions", "/completions", "/messages", "/audio/speech")) {
             if (root.endsWith(suffix)) {
                 root = root.removeSuffix(suffix)
                 break

@@ -5,7 +5,6 @@
 
 package com.metrolist.music.ui.screens.settings
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,229 +28,45 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
-import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.AiSystemPromptKey
 import com.metrolist.music.constants.DEFAULT_AI_SYSTEM_PROMPT
-import com.metrolist.music.constants.DeeplApiKey
 import com.metrolist.music.constants.DeeplFormalityKey
 import com.metrolist.music.constants.LanguageCodeToName
-import com.metrolist.music.constants.OpenRouterApiKey
-import com.metrolist.music.constants.OpenRouterBaseUrlKey
-import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.constants.TranslateLanguageKey
 import com.metrolist.music.constants.TranslateModeKey
+import com.metrolist.music.recommend.AiFeature
 import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.TextFieldDialog
-import com.metrolist.music.recommend.AiProviderClient
+import com.metrolist.music.ui.component.rememberAiResolvedConfig
 import com.metrolist.music.utils.rememberPreference
-import kotlinx.coroutines.launch
 
+/** Translation behavior only; providers and keys live in the AI providers screen. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiSettings(navController: NavController) {
-    var aiProvider by rememberPreference(AiProviderKey, "OpenRouter")
-    var openRouterApiKey by rememberPreference(OpenRouterApiKey, "")
-    var openRouterBaseUrl by rememberPreference(OpenRouterBaseUrlKey, "https://openrouter.ai/api/v1/chat/completions")
-    var openRouterModel by rememberPreference(OpenRouterModelKey, "google/gemini-2.5-flash-lite")
     var translateLanguage by rememberPreference(TranslateLanguageKey, "en")
     var translateMode by rememberPreference(TranslateModeKey, "Literal")
-    var deeplApiKey by rememberPreference(DeeplApiKey, "")
     var deeplFormality by rememberPreference(DeeplFormalityKey, "default")
     var aiSystemPrompt by rememberPreference(AiSystemPromptKey, "")
+    val translation = rememberAiResolvedConfig(AiFeature.TRANSLATION)
 
-    val aiProviders =
-        mapOf(
-            "OpenRouter" to "https://openrouter.ai/api/v1/chat/completions",
-            "OpenAI" to "https://api.openai.com/v1/chat/completions",
-            "Perplexity" to "https://api.perplexity.ai/chat/completions",
-            "Claude" to "https://api.anthropic.com/v1/messages",
-            "Gemini" to "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-            "XAi" to "https://api.x.ai/v1/chat/completions",
-            "Mistral" to "https://api.mistral.ai/v1/chat/completions",
-            "Inception" to "https://api.inceptionlabs.ai/v1/chat/completions",
-            "DeepL" to "https://api.deepl.com/v2/translate",
-            "Custom" to "",
-        )
-
-    val providerHelpText =
-        mapOf(
-            "OpenRouter" to stringResource(R.string.ai_provider_openrouter_help),
-            "OpenAI" to stringResource(R.string.ai_provider_openai_help),
-            "Perplexity" to stringResource(R.string.ai_provider_perplexity_help),
-            "Claude" to stringResource(R.string.ai_provider_claude_help),
-            "Gemini" to stringResource(R.string.ai_provider_gemini_help),
-            "XAi" to stringResource(R.string.ai_provider_xai_help),
-            "Mistral" to stringResource(R.string.ai_provider_mistral_help),
-            "Inception" to stringResource(R.string.ai_provider_inception_help),
-            "DeepL" to stringResource(R.string.ai_provider_deepl_help),
-            "Custom" to "",
-        )
-
-    val modelsByProvider =
-        mapOf(
-            "OpenRouter" to
-                listOf(
-                    "inception/mercury-2.5-preview", // really fucking fast
-                    "meta/muse-spark-1.3", // cheap
-                    "z-ai/glm-5.3-flash", // pretty fast and cheap
-                    "qwen/qwen3.8-flash", // good for chinese
-                    "~deepseek/deepseek-v4-flash-latest",
-                    "~openai/gpt-mini-latest",
-                    "openai/gpt-oss-120b",
-                    "~google/gemini-flash-latest",
-                ),
-            "OpenAI" to
-                listOf(
-                    "gpt-5.6-sol",
-                    "gpt-5.6-terra",
-                    "gpt-5.6-luna",
-                    "gpt-5.5-2026-04-23",
-                    "gpt-5.4-2026-03-05",
-                ),
-            "Claude" to
-                listOf(
-                    "claude-opus-5",
-                    "claude-sonnet-5",
-                    "claude-haiku-4-5-20251001",
-                    "claude-fable-5-1",
-                ),
-            "Gemini" to
-                listOf(
-                    "gemini-flash-lite-latest",
-                    "gemini-pro-latest",
-                    "gemini-flash-latest",
-                    "gemini-3.8-flash",
-                ),
-            "Perplexity" to
-                listOf(
-                    "sonar",
-                    "sonar-pro",
-                    "sonar-reasoning-pro",
-                ),
-            "XAi" to
-                listOf(
-                    "grok-4.3",
-                    "grok-4.6",
-                    "grok-4.1-fast",
-                ),
-            "Mistral" to
-                listOf(
-                    "mistral-large-latest",
-                    "mistral-medium-latest",
-                    "mistral-small-latest",
-                    "mistral-tiny-latest",
-                ),
-            "Inception" to
-                listOf(
-                    "mercury-2", // insanely fast diffusion LLM, supports structured outputs
-                ),
-            "DeepL" to listOf(),
-            "Custom" to listOf(),
-        )
-
-    val commonModels = modelsByProvider[aiProvider] ?: listOf()
-
-    var showProviderDialog by rememberSaveable { mutableStateOf(false) }
-    var showProviderHelpDialog by rememberSaveable { mutableStateOf(false) }
     var showTranslateModeDialog by rememberSaveable { mutableStateOf(false) }
     var showTranslateModeHelpDialog by rememberSaveable { mutableStateOf(false) }
     var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
-    var showApiKeyDialog by rememberSaveable { mutableStateOf(false) }
-    var showDeeplApiKeyDialog by rememberSaveable { mutableStateOf(false) }
     var showDeeplFormalityDialog by rememberSaveable { mutableStateOf(false) }
-    var showBaseUrlDialog by rememberSaveable { mutableStateOf(false) }
-    var showModelDialog by rememberSaveable { mutableStateOf(false) }
-    var showCustomModelInput by rememberSaveable { mutableStateOf(false) }
     var showSystemPromptDialog by rememberSaveable { mutableStateOf(false) }
-    var testingConnection by remember { mutableStateOf(false) }
-    var connectionResult by remember { mutableStateOf<String?>(null) }
-    val aiScope = rememberCoroutineScope()
-
-    if (showProviderHelpDialog) {
-        AlertDialog(
-            onDismissRequest = { showProviderHelpDialog = false },
-            confirmButton = {
-                TextButton(onClick = { showProviderHelpDialog = false }) {
-                    Text(stringResource(android.R.string.ok))
-                }
-            },
-            icon = { Icon(painterResource(R.drawable.info), null) },
-            title = { Text(stringResource(R.string.ai_provider_help)) },
-            text = {
-                Column {
-                    providerHelpText.forEach { (provider, help) ->
-                        if (help.isNotEmpty()) {
-                            val primaryColor = MaterialTheme.colorScheme.primary
-                            val annotatedString =
-                                buildAnnotatedString {
-                                    append("$provider: ")
-                                    // Extract URL from text
-                                    val urlRegex = "https?://[^\\s]+".toRegex()
-                                    val match = urlRegex.find(help)
-                                    if (match != null) {
-                                        val url = match.value
-                                        val beforeUrl = help.substring(0, match.range.first)
-                                        val afterUrl = help.substring(match.range.last + 1)
-
-                                        append(beforeUrl)
-                                        val linkStart = length
-                                        append(url)
-                                        val linkEnd = length
-                                        append(afterUrl)
-
-                                        addLink(
-                                            LinkAnnotation.Url(
-                                                url = url,
-                                                styles =
-                                                    TextLinkStyles(
-                                                        style =
-                                                            SpanStyle(
-                                                                color = primaryColor,
-                                                                textDecoration = TextDecoration.Underline,
-                                                            ),
-                                                    ),
-                                            ),
-                                            start = linkStart,
-                                            end = linkEnd,
-                                        )
-                                    } else {
-                                        append(help)
-                                    }
-                                }
-
-                            Text(
-                                text = annotatedString,
-                                style =
-                                    MaterialTheme.typography.bodyMedium.copy(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    ),
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            )
-                        }
-                    }
-                }
-            },
-        )
-    }
 
     if (showTranslateModeHelpDialog) {
         AlertDialog(
@@ -276,7 +90,6 @@ fun AiSettings(navController: NavController) {
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
-
                     Text(
                         text = "${stringResource(R.string.ai_translation_transcribed)}:",
                         style = MaterialTheme.typography.titleSmall,
@@ -287,33 +100,6 @@ fun AiSettings(navController: NavController) {
                     )
                 }
             },
-        )
-    }
-
-    if (showProviderDialog) {
-        EnumDialog(
-            onDismiss = { showProviderDialog = false },
-            onSelect = {
-                aiProvider = it
-                if (it != "Custom" && it != "DeepL") {
-                    openRouterBaseUrl = aiProviders[it] ?: ""
-                } else {
-                    openRouterBaseUrl = ""
-                }
-                // Set model to first available model for the selected provider
-                val modelsForProvider = modelsByProvider[it] ?: listOf()
-                openRouterModel =
-                    if (modelsForProvider.isNotEmpty()) {
-                        modelsForProvider[0]
-                    } else {
-                        ""
-                    }
-                showProviderDialog = false
-            },
-            title = stringResource(R.string.ai_provider),
-            current = aiProvider,
-            values = aiProviders.keys.toList(),
-            valueText = { it },
         )
     }
 
@@ -351,32 +137,6 @@ fun AiSettings(navController: NavController) {
         )
     }
 
-    if (showApiKeyDialog) {
-        TextFieldDialog(
-            title = { Text(stringResource(R.string.ai_api_key)) },
-            icon = { Icon(painterResource(R.drawable.key), null) },
-            initialTextFieldValue = TextFieldValue(text = openRouterApiKey),
-            onDone = {
-                openRouterApiKey = it
-                showApiKeyDialog = false
-            },
-            onDismiss = { showApiKeyDialog = false },
-        )
-    }
-
-    if (showDeeplApiKeyDialog) {
-        TextFieldDialog(
-            title = { Text("DeepL ${stringResource(R.string.ai_api_key)}") },
-            icon = { Icon(painterResource(R.drawable.key), null) },
-            initialTextFieldValue = TextFieldValue(text = deeplApiKey),
-            onDone = {
-                deeplApiKey = it
-                showDeeplApiKeyDialog = false
-            },
-            onDismiss = { showDeeplApiKeyDialog = false },
-        )
-    }
-
     if (showDeeplFormalityDialog) {
         EnumDialog(
             onDismiss = { showDeeplFormalityDialog = false },
@@ -398,52 +158,6 @@ fun AiSettings(navController: NavController) {
         )
     }
 
-    if (showBaseUrlDialog && aiProvider == "Custom") {
-        TextFieldDialog(
-            title = { Text(stringResource(R.string.ai_base_url)) },
-            icon = { Icon(painterResource(R.drawable.link), null) },
-            initialTextFieldValue = TextFieldValue(text = openRouterBaseUrl),
-            onDone = {
-                openRouterBaseUrl = it
-                showBaseUrlDialog = false
-            },
-            onDismiss = { showBaseUrlDialog = false },
-        )
-    }
-
-    if (showModelDialog) {
-        AiModelPickerDialog(
-            provider = aiProvider,
-            baseUrl = openRouterBaseUrl,
-            apiKey = openRouterApiKey,
-            current = openRouterModel,
-            fallbackModels = commonModels,
-            onSelect = {
-                openRouterModel = it
-                connectionResult = null
-                showModelDialog = false
-            },
-            onCustom = {
-                showModelDialog = false
-                showCustomModelInput = true
-            },
-            onDismiss = { showModelDialog = false },
-        )
-    }
-
-    if (showCustomModelInput) {
-        TextFieldDialog(
-            title = { Text(stringResource(R.string.ai_model)) },
-            icon = { Icon(painterResource(R.drawable.discover_tune), null) },
-            initialTextFieldValue = TextFieldValue(text = openRouterModel),
-            onDone = {
-                openRouterModel = it
-                showCustomModelInput = false
-            },
-            onDismiss = { showCustomModelInput = false },
-        )
-    }
-
     if (showSystemPromptDialog) {
         TextFieldDialog(
             title = { Text(stringResource(R.string.ai_system_prompt)) },
@@ -453,7 +167,6 @@ fun AiSettings(navController: NavController) {
             maxLines = 12,
             isInputValid = { true },
             onDone = {
-                // Treat saving the unmodified default (or blank) as "use default"
                 aiSystemPrompt = if (it.isBlank() || it == DEFAULT_AI_SYSTEM_PROMPT) "" else it
                 showSystemPromptDialog = false
             },
@@ -465,7 +178,6 @@ fun AiSettings(navController: NavController) {
                             Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.End,
                     ) {
                         TextButton(
                             onClick = {
@@ -492,67 +204,15 @@ fun AiSettings(navController: NavController) {
     ) {
         Spacer(
             Modifier.windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(
-                    WindowInsetsSides.Top,
-                ),
+                LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top),
             ),
         )
 
         Material3SettingsGroup(
-            title = stringResource(R.string.ai_provider),
-            items =
-                listOf(
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.explore_outlined),
-                        title = { Text(stringResource(R.string.ai_provider)) },
-                        description = { Text(aiProvider) },
-                        onClick = { showProviderDialog = true },
-                        trailingContent = {
-                            IconButton(onClick = { showProviderHelpDialog = true }) {
-                                Icon(
-                                    painterResource(R.drawable.info),
-                                    contentDescription = stringResource(R.string.ai_provider_help),
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        },
-                    ),
-                    if (aiProvider == "Custom") {
-                        Material3SettingsItem(
-                            icon = painterResource(R.drawable.link),
-                            title = { Text(stringResource(R.string.ai_base_url)) },
-                            description = { Text(openRouterBaseUrl.ifBlank { stringResource(R.string.not_set) }) },
-                            onClick = { showBaseUrlDialog = true },
-                        )
-                    } else {
-                        null
-                    },
-                ).filterNotNull(),
-        )
-
-        Spacer(modifier = Modifier.height(27.dp))
-
-        Material3SettingsGroup(
-            title = stringResource(R.string.ai_setup_guide),
+            title = stringResource(R.string.ai_lyrics_translation),
             items =
                 buildList {
-                    if (aiProvider == "DeepL") {
-                        add(
-                            Material3SettingsItem(
-                                icon = painterResource(R.drawable.key),
-                                title = { Text("DeepL ${stringResource(R.string.ai_api_key)}") },
-                                description = {
-                                    Text(
-                                        if (deeplApiKey.isNotEmpty()) {
-                                            "•".repeat(minOf(deeplApiKey.length, 8))
-                                        } else {
-                                            stringResource(R.string.not_set)
-                                        },
-                                    )
-                                },
-                                onClick = { showDeeplApiKeyDialog = true },
-                            ),
-                        )
+                    if (translation.provider == "DeepL") {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.tune),
@@ -571,78 +231,6 @@ fun AiSettings(navController: NavController) {
                             ),
                         )
                     } else {
-                        add(
-                            Material3SettingsItem(
-                                icon = painterResource(R.drawable.key),
-                                title = { Text(stringResource(R.string.ai_api_key)) },
-                                description = {
-                                    Text(
-                                        if (openRouterApiKey.isNotEmpty()) {
-                                            "•".repeat(minOf(openRouterApiKey.length, 8))
-                                        } else {
-                                            stringResource(R.string.not_set)
-                                        },
-                                    )
-                                },
-                                onClick = { showApiKeyDialog = true },
-                            ),
-                        )
-                        add(
-                            Material3SettingsItem(
-                                icon = painterResource(R.drawable.discover_tune),
-                                title = { Text(stringResource(R.string.ai_model)) },
-                                description = { Text(openRouterModel.ifBlank { stringResource(R.string.not_set) }) },
-                                onClick = { showModelDialog = true },
-                            ),
-                        )
-                        add(
-                            Material3SettingsItem(
-                                icon = painterResource(R.drawable.sync),
-                                title = { Text(stringResource(R.string.ai_test_connection)) },
-                                description =
-                                    if (connectionResult != null) {
-                                        { Text(connectionResult.orEmpty()) }
-                                    } else {
-                                        null
-                                    },
-                                trailingContent = {
-                                    if (testingConnection) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp,
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    if (!testingConnection) {
-                                        testingConnection = true
-                                        connectionResult = null
-                                        aiScope.launch {
-                                            val result =
-                                                AiProviderClient.testConnection(
-                                                    provider = aiProvider,
-                                                    baseUrl = openRouterBaseUrl,
-                                                    model = openRouterModel,
-                                                    apiKey = openRouterApiKey,
-                                                )
-                                            connectionResult = result.message
-                                            testingConnection = false
-                                        }
-                                    }
-                                },
-                            ),
-                        )
-                    }
-                },
-        )
-
-        Spacer(modifier = Modifier.height(27.dp))
-
-        Material3SettingsGroup(
-            title = stringResource(R.string.ai_translation_mode),
-            items =
-                buildList {
-                    if (aiProvider != "DeepL") {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.translate),
@@ -698,7 +286,7 @@ fun AiSettings(navController: NavController) {
                 },
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(Modifier.height(16.dp))
     }
 
     TopAppBar(

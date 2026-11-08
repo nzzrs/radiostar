@@ -43,6 +43,7 @@ import com.metrolist.music.ui.screens.recognition.RecognitionScreen
 import com.metrolist.music.ui.screens.search.OnlineSearchResult
 import com.metrolist.music.ui.screens.search.SearchScreen
 import com.metrolist.music.ui.screens.settings.AboutScreen
+import com.metrolist.music.ui.screens.settings.AiProvidersSettings
 import com.metrolist.music.ui.screens.settings.AiSettings
 import com.metrolist.music.ui.screens.settings.AndroidAutoSettings
 import com.metrolist.music.ui.screens.settings.AppearanceSettings
@@ -371,6 +372,10 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/ai") {
         AiSettings(navController)
+    }
+
+    composable("settings/ai/providers") {
+        AiProvidersSettings(navController)
     }
 
     composable("settings/dj") {

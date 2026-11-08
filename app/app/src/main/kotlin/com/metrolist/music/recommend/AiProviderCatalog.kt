@@ -73,4 +73,27 @@ object AiProviderCatalog {
     fun baseUrl(provider: String): String = baseUrls[provider].orEmpty()
 
     fun fallbackModels(provider: String): List<String> = models[provider].orEmpty()
+
+    /** Chat URL to the matching OpenAI-compatible speech endpoint. */
+    fun speechUrl(baseUrl: String): String {
+        var root = baseUrl.trim().trimEnd('/')
+        if (root.isEmpty()) return ""
+        if (root.endsWith("/audio/speech")) return root
+        for (suffix in listOf("/chat/completions", "/completions", "/messages", "/responses")) {
+            if (root.endsWith(suffix)) {
+                root = root.removeSuffix(suffix)
+                break
+            }
+        }
+        return "$root/audio/speech"
+    }
+
+    /** TTS base URL for a provider; Gemini uses generateContent, not /audio/speech. */
+    fun ttsBaseUrl(provider: String): String =
+        when (provider) {
+            "Gemini" -> "https://generativelanguage.googleapis.com/v1beta"
+            "OpenAI" -> "https://api.openai.com/v1/audio/speech"
+            "Custom" -> ""
+            else -> speechUrl(baseUrl(provider))
+        }
 }

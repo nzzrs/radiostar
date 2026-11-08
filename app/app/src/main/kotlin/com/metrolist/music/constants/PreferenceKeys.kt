@@ -456,6 +456,44 @@ val DeeplApiKey = stringPreferencesKey("deeplApiKey")
 val DeeplFormalityKey = stringPreferencesKey("deeplFormality")
 val AiSystemPromptKey = stringPreferencesKey("aiSystemPrompt")
 
+// Per-feature provider overrides. UseDefault means the global provider/key above.
+val AiTranslationUseDefaultKey = booleanPreferencesKey("aiTranslationUseDefault")
+val AiTranslationProviderKey = stringPreferencesKey("aiTranslationProvider")
+val AiTranslationBaseUrlKey = stringPreferencesKey("aiTranslationBaseUrl")
+val AiTranslationModelKey = stringPreferencesKey("aiTranslationModel")
+val AiTranslationApiKeyKey = stringPreferencesKey("aiTranslationApiKey")
+
+val AiTtsUseDefaultKey = booleanPreferencesKey("aiTtsUseDefault")
+val AiTtsEngineKey = stringPreferencesKey("aiTtsEngine")
+val AiTtsProviderKey = stringPreferencesKey("aiTtsProvider")
+val AiTtsBaseUrlKey = stringPreferencesKey("aiTtsBaseUrl")
+val AiTtsModelKey = stringPreferencesKey("aiTtsModel")
+val AiTtsApiKeyKey = stringPreferencesKey("aiTtsApiKey")
+val AiTtsVoiceKey = stringPreferencesKey("aiTtsVoice")
+
+const val AI_TTS_ENGINE_PHONE = "Phone"
+const val AI_TTS_ENGINE_PROVIDER = "Provider"
+const val AI_TTS_DEFAULT_PROVIDER = "OpenAI"
+const val AI_TTS_DEFAULT_BASE_URL = "https://api.openai.com/v1/audio/speech"
+const val AI_TTS_DEFAULT_MODEL = "gpt-4o-mini-tts"
+const val AI_TTS_DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-tts"
+const val AI_TTS_DEFAULT_VOICE = "alloy"
+val AiTtsModelSuggestions =
+    listOf(
+        "gpt-4o-mini-tts",
+        "gpt-4o-mini-tts-2025-12-15",
+        "tts-1",
+        "tts-1-hd",
+    )
+val AiTtsGeminiModelSuggestions =
+    listOf(
+        "gemini-2.5-flash-preview-tts",
+        "gemini-2.5-pro-preview-tts",
+        "gemini-3.8-flash-tts",
+        "gemini-3.8-flash-lite-tts",
+        "gemini-3.1-flash-tts-preview",
+    )
+
 const val DEFAULT_AI_SYSTEM_PROMPT = """You are a precise lyrics translation assistant. Your output must ALWAYS be a valid JSON object of the form {"lines": ["line1", "line2", "line3"]}.
 
 CRITICAL RULES:
@@ -749,6 +787,7 @@ val RadioStarDjKnownKey = stringPreferencesKey("radiostarDjKnown")
 val RadioStarDjFarKey = stringPreferencesKey("radiostarDjFar")
 val RadioStarDjLikelyKey = stringPreferencesKey("radiostarDjLikely")
 val RadioStarDjAiKey = booleanPreferencesKey("radiostarDjAi")
+val RadioStarDjUseDefaultKey = booleanPreferencesKey("radiostarDjUseDefault")
 val RadioStarDjApiKeyKey = stringPreferencesKey("radiostarDjApiKey")
 val RadioStarDjProviderKey = stringPreferencesKey("radiostarDjProvider")
 val RadioStarDjBaseUrlKey = stringPreferencesKey("radiostarDjBaseUrl")
@@ -774,7 +813,6 @@ val RadioStarListenTogetherUrlKey = stringPreferencesKey("radiostarListenTogethe
 const val RADIOSTAR_DEFAULT_SERVER = "http://localhost:8787"
 const val RADIOSTAR_SHARE_BASE_URL = "https://radiostarserver.nzrs.link/listen"
 const val RADIOSTAR_LISTEN_TOGETHER_URL = "wss://radiostarserver.nzrs.link/ws"
-
 
 const val RADIOSTAR_DEFAULT_DJ_PROVIDER = "Gemini"
 const val RADIOSTAR_DEFAULT_DJ_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"

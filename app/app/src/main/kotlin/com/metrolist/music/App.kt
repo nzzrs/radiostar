@@ -32,6 +32,7 @@ import com.metrolist.music.constants.*
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
+import com.metrolist.music.recommend.AiProviderResolver
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.recommend.RadioStarSync
 import com.metrolist.music.recommend.ScrobblerSync
@@ -109,6 +110,9 @@ class App :
                 radioStarRepository.refreshIfDue()
                 delay(10 * 60_000L)
             }
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            AiProviderResolver.migrate(this@App)
         }
         applicationScope.launch(Dispatchers.IO) {
             ScrobblerSync.syncIfDue(this@App)
