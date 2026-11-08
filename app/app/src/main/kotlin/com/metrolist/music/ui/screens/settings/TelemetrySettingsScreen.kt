@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -16,7 +18,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +43,7 @@ import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.AdvancedTelemetryEnabledKey
+import com.metrolist.music.recommend.TelemetryInsights
 import com.metrolist.music.recommend.TelemetryStore
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.IconButton
@@ -56,11 +62,17 @@ fun TelemetrySettingsScreen(navController: NavController) {
     val scope = rememberCoroutineScope()
     var enabled by rememberPreference(AdvancedTelemetryEnabledKey, false)
     var count by remember { mutableIntStateOf(0) }
+    var insights by remember { mutableStateOf<TelemetryInsights?>(null) }
     var showInfo by remember { mutableStateOf(false) }
     var showClear by remember { mutableStateOf(false) }
 
     LaunchedEffect(enabled) {
-        count = withContext(Dispatchers.IO) { TelemetryStore.count(context) }
+        val events =
+            withContext(Dispatchers.IO) {
+                if (enabled) TelemetryStore.load(context) else emptyList()
+            }
+        count = events.size
+        insights = if (enabled) TelemetryInsights.fromEvents(events) else null
     }
 
     Column(
@@ -114,6 +126,10 @@ fun TelemetrySettingsScreen(navController: NavController) {
                     ),
             )
             Spacer(Modifier.height(16.dp))
+            insights?.takeIf { it.events > 0 }?.let { summary ->
+                TelemetrySignal(summary)
+                Spacer(Modifier.height(16.dp))
+            }
         }
     }
 
@@ -173,4 +189,54 @@ fun TelemetrySettingsScreen(navController: NavController) {
             }
         },
     )
+}
+
+@Composable
+private fun TelemetrySignal(insights: TelemetryInsights) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text(
+                text = stringResource(R.string.radiostar_telemetry_signal),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text =
+                    stringResource(
+                        R.string.radiostar_telemetry_signal_line,
+                        (insights.completionRate * 100).toInt(),
+                        (insights.skipRate * 100).toInt(),
+                        (insights.discoveryRate * 100).toInt(),
+                    ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text =
+                    stringResource(
+                        R.string.radiostar_telemetry_sessions,
+                        insights.sessions,
+                        insights.distinctSongs,
+                        insights.distinctArtists,
+                    ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            insights.topArtists.take(3).takeIf { it.isNotEmpty() }?.let { artists ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text =
+                        stringResource(
+                            R.string.radiostar_telemetry_top_artists,
+                            artists.joinToString(", ") { it.displayName },
+                        ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }

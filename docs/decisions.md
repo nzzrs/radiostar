@@ -530,8 +530,9 @@ test; the database rows, artist maps and generation path are verified.
 
 - The event log is local JSONL in the app's private storage. Nothing is sent to
   the laptop or any backend.
-- Events: play, pause, skip, seek and completion, with position/duration,
-  timestamp, process session, playlist and queue seed, plus song and artist.
+- Events: play, pause, skip, seek, completion, replay, like and dislike, with
+  position/duration, timestamp, process session, playlist, queue seed, song,
+  artist, album and the Go Beyond facets of a generated journey.
 - The settings screen discloses the fields, shows the count and deletes the
   file on request.
 - Telemetry never runs unless the user enables it; turning it off stops new
@@ -591,6 +592,26 @@ test; the database rows, artist maps and generation path are verified.
 - Default server URL is `http://localhost:8787`; it is a placeholder the user
   overrides. Default share-link and Listen Together URLs point at
   `radiostarserver.nzrs.link` and are editable in Settings.
+
+## D-23 — Go Beyond gateway playlists
+
+**Status:** implemented; Kotlin unit tests and server tests pass.
+
+- Search has a second tab with country, genre, artist, period, colour and mood
+  sections plus a custom combination builder. A predefined decade or a free
+  year range both describe the period.
+- A card searches YouTube Music, optionally embeds its semantic prompt and the
+  candidates on the user's own text tower, then ranks by prompt similarity,
+  decayed song/artist telemetry, recent and skipped memory, a small
+  unheard-artist bonus and a hard per-artist cap.
+- The result is an ordinary local playlist with a stable `LP_RS_GO_*` id.
+  Pull-to-refresh rebuilds the saved selection instead of creating a copy.
+- Playlist names carry the facets (`Go Beyond · Brazil · Shoegaze`). The player
+  copies them into telemetry, so later cards can be ordered by real affinity
+  and the recommended card can choose a returning area, the most played artist
+  or a mood inferred from the most active listening hour.
+- This does not change playback behaviour: a journey starts only when the user
+  opens its playlist.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

@@ -215,7 +215,8 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
   - `radiostar_listens.jsonl` — imported listens, append-only, deduplicated.
   - `radiostar_reactions.jsonl` — likes/dislikes with local sequence and
     tombstones; `song.liked` remains the UI projection.
-  - `radiostar_telemetry.jsonl` — local opt-in play/pause/skip/seek/complete events.
+  - `radiostar_telemetry.jsonl` — local opt-in play/pause/skip/seek/complete/
+    replay/like/dislike events, including album and Go Beyond facets.
 - DataStore:
   - `RadioStarDjKey` (AI DJ on/off), `RadioStarServerKey`,
     `RadioStarProfilesKey`, playlist stamps, per-service import checkpoints,
@@ -229,6 +230,8 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
 - Loads CLAP text tower once (~20 s).
 - `GET /health` → `{"ok": true}`.
 - `POST /embed` → 512-d unit vectors, SQLite cache, one lock around the model.
+- `POST /embed/text` → 512-d vectors for free-text prompts (colour and mood
+  cards), cached in the same SQLite table.
 - Authenticated with per-device opaque tokens; accounts and devices in
   `server/data/auth.sqlite`, Argon2id passwords, one-time pairing codes.
 - Binds `127.0.0.1:8787` and expects Cloudflare Tunnel or another HTTPS proxy.
@@ -432,16 +435,44 @@ events to the app's private files directory only when the user enables it.
 
 Recorded fields:
 
-- event type: play, pause, skip, seek or completion;
-- song id, title and artist;
+- event type: play, pause, skip, seek, completion, replay, like or dislike;
+- song id, title, artist and album;
 - position and duration;
-- wall-clock time, process session id;
-- playlist name and queue seed.
+- wall-clock time and process session id;
+- playlist name, queue seed and Go Beyond facets (country, genre, period,
+  colour, mood).
 
-Nothing is uploaded, and no audio or device identifier is written. The
-settings screen shows the stored event count, explains every field and can
-delete the local file. Skip and completion events are the inputs the
-recommender can use to distinguish rejection from satisfaction.
+`TelemetryInsights` reduces the log to completion/skip/early-skip rates,
+discovery rate, session count, active hours, top artists and songs, plus a
+bounded affinity for every Go Beyond facet. `TelemetryTaste` turns the same
+events into decayed song and artist scores used by the DPP quality term, the DJ
+buckets and the Go Beyond ranker. Nothing is uploaded, and no audio or device
+identifier is written. The settings screen shows the stored event count and
+the derived listening signal, and can delete the local file.
+
+### 6.7 Go Beyond
+
+`Search` has a second tab beside the search field. It presents six browsable
+areas — country, genre, artist, period, colour, mood — plus a custom builder
+that combines any of them, including a free year range.
+
+Tapping a card:
+
+1. builds two or three YouTube Music search phrases from the selected facets;
+2. optionally embeds the category prompt with `POST /embed/text` and the
+   candidates with `POST /embed` on the user's own server;
+3. ranks candidates with `GoBeyondRanker`: semantic similarity, telemetry
+   song/artist scores, recent and skipped memory, a small unheard-artist
+   bonus and an artist cap;
+4. writes the result as a normal local playlist with a stable
+   `LP_RS_GO_*` id, so a second tap replaces the same journey.
+
+Playback is a normal `ListQueue`; the generated playlist name carries the
+facets, and `MusicService` copies them into telemetry. Pull-to-refresh rebuilds
+the same journey from the saved selection. Cards are ordered by facet affinity,
+and the “Picked from your listening” card prefers a facet with positive
+affinity, then the most played artist, then a mood inferred from the most
+active listening hour.
 
 ## 7. Deployment View
 
@@ -513,6 +544,7 @@ See `docs/decisions.md`:
 - D-19: history-based Weekly/Monthly Most.
 - D-20: local advanced telemetry.
 - D-22: server-synced settings and reactions.
+- D-23: Go Beyond gateway playlists and telemetry-driven journey ranking.
 
 ## 10. Quality Requirements
 

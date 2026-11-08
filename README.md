@@ -18,7 +18,9 @@ turned into generated playlists. RadioStar never changes what the user chose
 to play: there is no queue injection and no mix mode.
 
 Home shows **RadioStar playlists**: Daily Discover, Daily Jam, Daily Explore
-and their weekly versions. The playlist day starts at **06:00 local time**, and
+and their weekly versions. **Search → Go Beyond** turns a country, genre,
+artist, period, colour, mood or a custom combination into a local gateway
+playlist; telemetry decides which areas to surface and which tracks to keep. The playlist day starts at **06:00 local time**, and
 daily/weekly lists are rebuilt from imported listens first, with local events
 only as fallback. A separate **AI DJ** block (optional) offers a wheel for
 familiar/far/likely tracks and fruit personas. The app never changes the queue
@@ -34,7 +36,9 @@ refresh. Imported listens are the primary anchor and taste signal.
 
 **Scrobble service** is a separate destination setting: Off (default), Last.fm,
 ListenBrainz, Custom or External scrobbler. **Advanced telemetry** is local,
-opt-in and off by default; it never leaves the phone.
+opt-in and off by default; it never leaves the phone. It records completion,
+skip depth, seeks, repeats and explicit reactions, then derives completion and
+discovery rates, sessions, active hours, top artists and Go Beyond affinity.
 
 **Sync** (optional) uses the same server account. Settings and like/dislike
 reactions sync across linked devices; the server is the authority. Secret

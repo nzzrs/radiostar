@@ -58,6 +58,11 @@ class TextEmbedder:
         material = f"{artist.strip().lower()}\u0000{title.strip().lower()}"
         return hashlib.sha1(material.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def text_key(text: str) -> str:
+        material = f"text\u0000{text.strip().lower()}"
+        return hashlib.sha1(material.encode("utf-8")).hexdigest()
+
     def embed(self, artist: str, title: str) -> np.ndarray:
         cache_key = self.key(artist, title)
         row = self._db.execute("SELECT vector FROM vectors WHERE key = ?", (cache_key,)).fetchone()
@@ -74,6 +79,23 @@ class TextEmbedder:
         )
         self._db.commit()
         return averaged.astype(np.float32)
+
+    def embed_text(self, text: str) -> np.ndarray:
+        """Embed a free-text prompt in the same CLAP space as track metadata."""
+        cache_key = self.text_key(text)
+        row = self._db.execute("SELECT vector FROM vectors WHERE key = ?", (cache_key,)).fetchone()
+        if row is not None:
+            return np.frombuffer(row[0], dtype=np.float32)
+
+        vector = self._module.get_text_embedding([text.strip()])[0]
+        vector = vector / max(float(np.linalg.norm(vector)), 1e-9)
+        vector = vector.astype(np.float32)
+        self._db.execute(
+            "INSERT OR REPLACE INTO vectors (key, vector) VALUES (?, ?)",
+            (cache_key, vector.tobytes()),
+        )
+        self._db.commit()
+        return vector
 
 
 def main() -> int:
