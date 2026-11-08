@@ -6,19 +6,9 @@
 package com.metrolist.music.recommend
 
 import android.content.Context
-import com.metrolist.music.constants.OpenRouterApiKey
-import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_BASE_URL
-import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_MODEL
-import com.metrolist.music.constants.RADIOSTAR_DEFAULT_DJ_PROVIDER
-import com.metrolist.music.constants.RadioStarDjApiKeyKey
-import com.metrolist.music.constants.RadioStarDjBaseUrlKey
-import com.metrolist.music.constants.RadioStarDjModelKey
-import com.metrolist.music.constants.RadioStarDjProviderKey
-import com.metrolist.music.utils.dataStore
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -81,19 +71,12 @@ object DjAiCommentator {
         userTurn: String,
     ): String? =
         withContext(Dispatchers.IO) {
-            val prefs = context.dataStore.data.first()
-            val secureKey =
-                prefs[RadioStarDjApiKeyKey]?.takeIf { it.isNotBlank() }?.let(SecureKeyStore::decrypt)
-            val key = secureKey?.trim()?.takeIf { it.isNotEmpty() }
-                ?: prefs[OpenRouterApiKey]?.trim().orEmpty()
-            if (key.isEmpty()) return@withContext null
-            val base =
-                prefs[RadioStarDjBaseUrlKey]?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: RADIOSTAR_DEFAULT_DJ_BASE_URL
-            val model =
-                prefs[RadioStarDjModelKey]?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: RADIOSTAR_DEFAULT_DJ_MODEL
-            val provider = prefs[RadioStarDjProviderKey] ?: RADIOSTAR_DEFAULT_DJ_PROVIDER
+            val config = AiProviderResolver.resolve(context, AiFeature.DJ_VOICE)
+            val key = config.apiKey.trim()
+            if (key.isEmpty() || !config.isChatCapable) return@withContext null
+            val base = config.baseUrl
+            val model = config.model
+            val provider = config.provider
             val payload =
                 JSONObject().apply {
                     put("model", model)

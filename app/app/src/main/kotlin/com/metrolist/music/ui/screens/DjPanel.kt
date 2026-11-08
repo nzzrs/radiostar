@@ -50,6 +50,7 @@ import com.metrolist.music.recommend.DjPresence
 @Composable
 fun DjHomeCard(
     config: DjConfig,
+    error: String?,
     onStart: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -102,6 +103,13 @@ fun DjHomeCard(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!error.isNullOrBlank()) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
                 Box(
                     modifier =

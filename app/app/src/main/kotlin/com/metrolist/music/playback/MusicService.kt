@@ -4219,87 +4219,104 @@ class MusicService :
             .onFailure { Timber.tag("RadioStarTap").e(it, "embedder init failed") }
             .getOrNull()
 
+    /** Outcome of a user-requested DJ start. */
+    enum class DjStartResult { STARTED, DISABLED, EMPTY, FAILED }
+
     /** User pressed Start DJ. This is the only place a session replaces the queue. */
-    fun playDjSession(items: List<MediaItem>, persona: DjPersona) {
-        if (items.isEmpty()) return
-        scope.launch(Dispatchers.Main) {
-            if (!aiDjEnabled) return@launch
-            val sessionId = ++djSessionId
-            player.stop()
-            player.setPauseAtEndOfMediaItems(false)
-            player.playWhenReady = false
-            player.setMediaItems(items, 0, 0L)
-            player.prepare()
-            currentQueue = EmptyQueue
-            queueTitle = null
-            originalQueueSize = items.size
-            radioStarDj = true
-            djPersona = persona
-            announcedPair = null
-            djBias = TelemetryBias.EMPTY
-            djLastSpeechIndex = -1
-            djLastSpeechAtMs = SystemClock.elapsedRealtime()
-            djSessionStartedAtMs = djLastSpeechAtMs
-            djLinksSpoken = 0
-            djHeldAtTrackEnd = false
-            resetDjPreparation()
-            DjSessionState.speaking(persona)
-            DjSessionState.requestPlayerOpen()
-            val announcer =
-                djAnnouncer
-                    ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
-                        .also { djAnnouncer = it }
-            announcer.setVoice(persona.pitch, persona.rate)
-            announcer.prepare()
-            val first = items.firstOrNull()?.mediaMetadata
-            val firstTitle = first?.title?.toString().orEmpty()
-            val firstArtist = first?.artist?.toString().orEmpty()
-            val fallback =
-                DjScript.intro(
-                    persona = persona,
-                    firstTitle = firstTitle,
-                    firstArtist = firstArtist,
-                    language = java.util.Locale.getDefault().language,
-                )
-            val startPlayback = {
-                if (radioStarDj && sessionId == djSessionId && ::player.isInitialized) {
-                    player.volume = calculateEffectiveVolume()
-                    player.play()
-                    prepareDjAnnouncementForCurrent()
-                }
-            }
-            val speak: (String) -> Unit = { line ->
-                val spoken =
-                    announcer.announce(
-                        line,
-                        "dj:intro:${System.nanoTime()}",
-                        onDone = {
-                            djLinksSpoken = 1
-                            djLastSpeechIndex = -1
-                            djLastSpeechAtMs = SystemClock.elapsedRealtime()
-                            scope.launch(Dispatchers.Main) { startPlayback() }
-                        },
+    suspend fun playDjSession(items: List<MediaItem>, persona: DjPersona): DjStartResult {
+        if (items.isEmpty()) {
+            Timber.tag("RadioStarDj").w("start rejected: empty queue")
+            return DjStartResult.EMPTY
+        }
+        if (!aiDjEnabled) {
+            Timber.tag("RadioStarDj").w("start rejected: AI DJ disabled")
+            return DjStartResult.DISABLED
+        }
+        return withContext(Dispatchers.Main) {
+            try {
+                val sessionId = ++djSessionId
+                player.stop()
+                player.setPauseAtEndOfMediaItems(false)
+                player.playWhenReady = false
+                player.setMediaItems(items, 0, 0L)
+                player.prepare()
+                currentQueue = EmptyQueue
+                queueTitle = null
+                originalQueueSize = items.size
+                radioStarDj = true
+                djPersona = persona
+                announcedPair = null
+                djBias = TelemetryBias.EMPTY
+                djLastSpeechIndex = -1
+                djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                djSessionStartedAtMs = djLastSpeechAtMs
+                djLinksSpoken = 0
+                djHeldAtTrackEnd = false
+                resetDjPreparation()
+                DjSessionState.speaking(persona)
+                DjSessionState.requestPlayerOpen()
+                val announcer =
+                    djAnnouncer
+                        ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
+                            .also { djAnnouncer = it }
+                announcer.setVoice(persona.pitch, persona.rate)
+                announcer.prepare()
+                val first = items.firstOrNull()?.mediaMetadata
+                val firstTitle = first?.title?.toString().orEmpty()
+                val firstArtist = first?.artist?.toString().orEmpty()
+                val fallback =
+                    DjScript.intro(
+                        persona = persona,
+                        firstTitle = firstTitle,
+                        firstArtist = firstArtist,
+                        language = java.util.Locale.getDefault().language,
                     )
-                if (!spoken) startPlayback()
-            }
-            if (djAiEnabled) {
-                scope.launch {
-                    val ai =
-                        kotlinx.coroutines.withTimeoutOrNull(5_000L) {
-                            DjAiCommentator.intro(this@MusicService, persona, firstTitle, firstArtist)
-                        }
-                    djHandler.post {
-                        if (radioStarDj && sessionId == djSessionId) speak(ai ?: fallback)
+                val startPlayback = {
+                    if (radioStarDj && sessionId == djSessionId && ::player.isInitialized) {
+                        player.volume = calculateEffectiveVolume()
+                        player.play()
+                        prepareDjAnnouncementForCurrent()
                     }
                 }
-            } else {
-                speak(fallback)
+                val speak: (String) -> Unit = { line ->
+                    val spoken =
+                        announcer.announce(
+                            line,
+                            "dj:intro:${System.nanoTime()}",
+                            onDone = {
+                                djLinksSpoken = 1
+                                djLastSpeechIndex = -1
+                                djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                                scope.launch(Dispatchers.Main) { startPlayback() }
+                            },
+                        )
+                    if (!spoken) startPlayback()
+                }
+                if (djAiEnabled) {
+                    scope.launch {
+                        val ai =
+                            kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                                DjAiCommentator.intro(this@MusicService, persona, firstTitle, firstArtist)
+                            }
+                        djHandler.post {
+                            if (radioStarDj && sessionId == djSessionId) speak(ai ?: fallback)
+                        }
+                    }
+                } else {
+                    speak(fallback)
+                }
+                scope.launch(Dispatchers.IO) {
+                    val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
+                    if (radioStarDj && sessionId == djSessionId) djBias = loaded
+                }
+                Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
+                DjStartResult.STARTED
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag("RadioStarDj").e(e, "DJ start failed")
+                DjStartResult.FAILED
             }
-            scope.launch(Dispatchers.IO) {
-                val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
-                if (radioStarDj && sessionId == djSessionId) djBias = loaded
-            }
-            Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
         }
     }
 

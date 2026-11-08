@@ -140,6 +140,7 @@ import com.metrolist.music.db.entities.PlaylistSongMap
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.MusicService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.LocalAlbumRadio
 import com.metrolist.music.playback.queues.YouTubeAlbumRadio
@@ -177,12 +178,14 @@ import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.CommunityPlaylistItem
 import com.metrolist.music.viewmodels.HomeViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.min
 import kotlin.random.Random
+import timber.log.Timber
 
 sealed class HomeSection(
     val id: String,
@@ -691,19 +694,65 @@ fun HomeScreen(
     var djFar by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
     var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
     var showDjPanel by remember { mutableStateOf(false) }
+    var djStartError by remember { mutableStateOf<String?>(null) }
     var djAi by rememberPreference(RadioStarDjAiKey, false)
     var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
     val artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
     val djScope = rememberCoroutineScope()
+    val djNoTracksMessage = stringResource(R.string.radiostar_dj_no_tracks)
+    val djPlayerNotReadyMessage = stringResource(R.string.radiostar_dj_player_not_ready)
+    val djDisabledMessage = stringResource(R.string.radiostar_dj_disabled)
+    val djStartFailedMessage = stringResource(R.string.radiostar_dj_start_failed)
     val startDj: (DjConfig) -> Unit = { config ->
         djScope.launch {
-            val songs = viewModel.buildDjQueue(config)
-            if (songs.isNotEmpty()) {
-                playerConnection.service?.playDjSession(
+            djStartError = null
+            val songs =
+                try {
+                    viewModel.buildDjQueue(config)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.tag("RadioStarDj").e(e, "DJ queue build failed")
+                    djStartError = djStartFailedMessage
+                    snackbarHostState.showSnackbar(djStartFailedMessage)
+                    return@launch
+                }
+            if (songs.isEmpty()) {
+                Timber.tag("RadioStarDj").w("DJ start aborted: no tracks available")
+                djStartError = djNoTracksMessage
+                snackbarHostState.showSnackbar(djNoTracksMessage)
+                return@launch
+            }
+            val service = playerConnection.service
+            if (!service.isPlayerReady.value) {
+                Timber.tag("RadioStarDj").w("DJ start aborted: player service not ready")
+                djStartError = djPlayerNotReadyMessage
+                snackbarHostState.showSnackbar(djPlayerNotReadyMessage)
+                return@launch
+            }
+            when (
+                service.playDjSession(
                     songs.map { it.toMediaItem() },
                     config.persona,
                 )
+            ) {
+                MusicService.DjStartResult.STARTED -> djStartError = null
+                MusicService.DjStartResult.DISABLED -> {
+                    Timber.tag("RadioStarDj").w("DJ start rejected: AI DJ disabled")
+                    djStartError = djDisabledMessage
+                    snackbarHostState.showSnackbar(djDisabledMessage)
+                }
+                MusicService.DjStartResult.EMPTY -> {
+                    Timber.tag("RadioStarDj").w("DJ start rejected: empty queue")
+                    djStartError = djNoTracksMessage
+                    snackbarHostState.showSnackbar(djNoTracksMessage)
+                }
+                MusicService.DjStartResult.FAILED -> {
+                    Timber.tag("RadioStarDj").e("DJ start failed")
+                    djStartError = djStartFailedMessage
+                    snackbarHostState.showSnackbar(djStartFailedMessage)
+                }
             }
         }
     }
@@ -1255,6 +1304,7 @@ fun HomeScreen(
                                 {
                                     DjHomeCard(
                                         config = djConfig,
+                                        error = djStartError,
                                         onStart = { startDj(djConfig) },
                                         onSettings = { showDjPanel = true },
                                     )
