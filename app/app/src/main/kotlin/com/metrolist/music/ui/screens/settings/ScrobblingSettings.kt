@@ -19,6 +19,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -50,6 +51,10 @@ import com.metrolist.music.utils.rememberPreference
 @Composable
 fun ScrobblingSettings(navController: NavController) {
     var destinationId by rememberPreference(ScrobbleDestinationKey, ScrobbleDestination.OFF.id)
+    var outboundListens by rememberPreference(
+        com.metrolist.music.constants.ScrobbleOutboundListensKey,
+        true,
+    )
     var scrobbleToken by rememberPreference(ScrobbleTokenKey, "")
     var customUrl by rememberPreference(ScrobbleCustomUrlKey, "")
     var customToken by rememberPreference(ScrobbleCustomTokenKey, "")
@@ -86,8 +91,24 @@ fun ScrobblingSettings(navController: NavController) {
                             onClick = { showDestinationDialog = true },
                         ),
                     )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.sync),
+                            title = { Text(stringResource(R.string.radiostar_scrobble_outbound)) },
+                            description = {
+                                Text(stringResource(R.string.radiostar_scrobble_outbound_desc))
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = outboundListens,
+                                    onCheckedChange = { outboundListens = it },
+                                )
+                            },
+                            onClick = { outboundListens = !outboundListens },
+                        ),
+                    )
                     when (destination) {
-                        ScrobbleDestination.LASTFM ->
+                        ScrobbleDestination.LASTFM -> {
                             add(
                                 Material3SettingsItem(
                                     icon = painterResource(R.drawable.person),
@@ -100,6 +121,17 @@ fun ScrobblingSettings(navController: NavController) {
                                     },
                                 ),
                             )
+                            add(
+                                Material3SettingsItem(
+                                    icon = painterResource(R.drawable.info),
+                                    title = { Text(stringResource(R.string.radiostar_lastfm_unlove_title)) },
+                                    description = {
+                                        Text(stringResource(R.string.radiostar_lastfm_unlove_warning))
+                                    },
+                                    enabled = false,
+                                ),
+                            )
+                        }
                         ScrobbleDestination.LISTENBRAINZ ->
                             add(
                                 Material3SettingsItem(

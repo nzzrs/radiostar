@@ -49,6 +49,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.exoplayer.offline.Download
@@ -224,6 +225,24 @@ fun YouTubeSongMenu(
             // For episodes, show saved state and toggle save for later
             val isEpisode = song.isEpisode
             val isFavorite = if (isEpisode) librarySong?.song?.inLibrary != null else librarySong?.song?.liked == true
+            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!isEpisode) {
+                IconButton(
+                    onClick = {
+                        val entity = librarySong?.song ?: song.toMediaMetadata().toSongEntity()
+                        syncUtils.dislikeSong(
+                            entity,
+                            song.artists.joinToString(", ") { it.name },
+                        )
+                        Toast.makeText(context, R.string.radiostar_disliked, Toast.LENGTH_SHORT).show()
+                    },
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.thumb_down),
+                        contentDescription = stringResource(R.string.radiostar_dislike),
+                    )
+                }
+            }
             IconButton(
                 onClick = {
                     if (isEpisode) {
@@ -269,6 +288,7 @@ fun YouTubeSongMenu(
                     tint = if (isFavorite) MaterialTheme.colorScheme.error else LocalContentColor.current,
                     contentDescription = null,
                 )
+            }
             }
         },  
     )  

@@ -96,6 +96,29 @@ GET  /auth/devices        Bearer
 DELETE /auth/devices/{id} Bearer
 ```
 
+Sync endpoints (Bearer, same device tokens):
+
+```text
+GET    /sync/pull?since=<seq>&limit=<n>   items changed after seq
+POST   /sync/push                         batch of config/reaction items
+GET    /sync/status                       item counts and server sequence
+DELETE /sync                              wipe this account's sync data
+```
+
+`/sync/push` accepts up to 500 items per request. Each item carries
+`kind` (`config` or `reaction`), a stable `key`, `updated_at_ms`, `deleted`
+and an opaque JSON `payload`. The server stores the latest row per
+`(user, kind, key)` with a monotonic sequence and resolves conflicts by
+last-writer-wins on `(updated_at_ms, device_id)`; the losing row comes back in
+`conflicts` so the phone can adopt it. Deletions are tombstones, not missing
+rows.
+
+Secret config values are encrypted on the phone with a passphrase-derived
+AES/GCM key before upload. The server never receives the passphrase or the
+plaintext; it only stores ciphertext in `payload`, so a server compromise does
+not leak scrobbler tokens, API keys or the YouTube cookie. The sync database is
+the same `auth.sqlite`, with schema version 2.
+
 Access tokens last 15 minutes. Refresh tokens last 30 days and rotate; reuse
 outside a short grace window revokes the device family. Only SHA-256 hashes of
 tokens are stored server-side.
@@ -133,7 +156,7 @@ example is in [`cloudflared.example.yml`](cloudflared.example.yml):
 tunnel: <tunnel-id>
 credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
 ingress:
-  - hostname: embed.example.com
+  - hostname: radiostarserver.nzrs.link
     service: http://127.0.0.1:8787
   - service: http_status:404
 ```

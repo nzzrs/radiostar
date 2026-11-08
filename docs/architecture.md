@@ -109,6 +109,10 @@ delivered as playlists, never by changing what the user chose to play.
   Binds `127.0.0.1` by default and runs behind Cloudflare Tunnel or another
   HTTPS reverse proxy. `/embed` requires a device Bearer token; access tokens
   last 15 minutes and refresh tokens rotate.
+- **Sync server** `/sync/pull`, `/sync/push`, `/sync/status`, `/sync` on the
+  same base URL and the same device Bearer token. Config values and
+  like/dislike reactions are stored per user with a monotonic sequence; secret
+  config values are encrypted on the phone before upload.
 - **Scrobblers**:
   - Last.fm Web API: `user.getRecentTracks`, `track.scrobble`,
     `track.updateNowPlaying`.
@@ -209,6 +213,8 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
   - `playlist`, `playlist_song_map` — normal playlists, including generated.
 - JSONL:
   - `radiostar_listens.jsonl` — imported listens, append-only, deduplicated.
+  - `radiostar_reactions.jsonl` — likes/dislikes with local sequence and
+    tombstones; `song.liked` remains the UI projection.
   - `radiostar_telemetry.jsonl` — local opt-in play/pause/skip/seek/complete events.
 - DataStore:
   - `RadioStarDjKey` (AI DJ on/off), `RadioStarServerKey`,
@@ -350,6 +356,13 @@ Outbound scrobbling:
   full endpoint.
 - A destination token falls back to the import token, so a single ListenBrainz
   token can cover both directions. Offline retry is still a follow-up.
+- Reactions mirror independently of listen submission: Last.fm love/unlove,
+  ListenBrainz and compatible love/hate feedback. Outbound listen submission
+  has its own switch, so RadioStar can stay silent while another Android
+  scrobbler submits, yet still own likes/dislikes and read history.
+- Cross-device settings and reactions sync through the RadioStar server
+  account (D-22). The server is authoritative; conflicts are last-writer-wins
+  on `(updated_at_ms, device_id)`, and deletions are tombstones.
 
 ### 6.4 AI DJ session
 
@@ -499,6 +512,7 @@ See `docs/decisions.md`:
 - D-18: 06:00 playlist day and imported-first mixes.
 - D-19: history-based Weekly/Monthly Most.
 - D-20: local advanced telemetry.
+- D-22: server-synced settings and reactions.
 
 ## 10. Quality Requirements
 

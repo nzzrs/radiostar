@@ -12,6 +12,7 @@ import com.metrolist.music.constants.EnableLastFMScrobblingKey
 import com.metrolist.music.constants.ScrobbleCustomTokenKey
 import com.metrolist.music.constants.ScrobbleCustomUrlKey
 import com.metrolist.music.constants.ScrobbleDestinationKey
+import com.metrolist.music.constants.ScrobbleOutboundListensKey
 import com.metrolist.music.constants.ScrobbleTokenKey
 import com.metrolist.music.constants.ScrobblerTokenKey
 import com.metrolist.music.utils.dataStore
@@ -68,6 +69,8 @@ object ScrobbleSink {
         durationSeconds: Int?,
     ) = withContext(Dispatchers.IO) {
         val preferences = context.dataStore.data.first()
+        // Reaction mirroring stays active when listen submission is off.
+        if (preferences[ScrobbleOutboundListensKey] == false) return@withContext
         when (ScrobbleDestination.effective(preferences)) {
             ScrobbleDestination.LASTFM -> {
                 if (LastFM.isInitialized() && !LastFM.sessionKey.isNullOrBlank()) {
@@ -111,6 +114,7 @@ object ScrobbleSink {
         timestampSeconds: Long,
     ) = withContext(Dispatchers.IO) {
         val preferences = context.dataStore.data.first()
+        if (preferences[ScrobbleOutboundListensKey] == false) return@withContext
         when (ScrobbleDestination.effective(preferences)) {
             ScrobbleDestination.LASTFM -> {
                 if (LastFM.isInitialized() && !LastFM.sessionKey.isNullOrBlank()) {

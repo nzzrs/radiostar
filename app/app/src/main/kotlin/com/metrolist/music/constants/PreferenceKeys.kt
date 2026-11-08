@@ -739,6 +739,7 @@ val ScrobblerLastTotalServiceKey = stringPreferencesKey("scrobblerLastTotalServi
 val ScrobblerLastResultKey = stringPreferencesKey("scrobblerLastResult")
 val ScrobblerCheckpointsKey = stringPreferencesKey("scrobblerCheckpoints")
 val ScrobbleDestinationKey = stringPreferencesKey("scrobbleDestination")
+val ScrobbleOutboundListensKey = booleanPreferencesKey("scrobbleOutboundListens")
 val ScrobbleTokenKey = stringPreferencesKey("scrobbleToken")
 val ScrobbleCustomUrlKey = stringPreferencesKey("scrobbleCustomUrl")
 val ScrobbleCustomTokenKey = stringPreferencesKey("scrobbleCustomToken")
@@ -753,6 +754,27 @@ val RadioStarDjProviderKey = stringPreferencesKey("radiostarDjProvider")
 val RadioStarDjBaseUrlKey = stringPreferencesKey("radiostarDjBaseUrl")
 val RadioStarDjModelKey = stringPreferencesKey("radiostarDjModel")
 val RadioStarArtworkOpacityKey = floatPreferencesKey("radiostarArtworkOpacity")
+
+// Cross-device sync through the RadioStar server account.
+val RadioStarSyncEnabledKey = booleanPreferencesKey("radiostarSyncEnabled")
+val RadioStarSyncPassphraseKey = stringPreferencesKey("radiostarSyncPassphrase")
+val RadioStarSyncSaltKey = stringPreferencesKey("radiostarSyncSalt")
+val RadioStarSyncLastSeqKey = longPreferencesKey("radiostarSyncLastSeq")
+val RadioStarSyncLastTimeKey = longPreferencesKey("radiostarSyncLastTime")
+val RadioStarSyncLastResultKey = stringPreferencesKey("radiostarSyncLastResult")
+val RadioStarSyncSnapshotKey = stringPreferencesKey("radiostarSyncSnapshot")
+val RadioStarSyncReactionsPushedKey = longPreferencesKey("radiostarSyncReactionsPushed")
+val RadioStarSyncMirrorYoutubeKey = booleanPreferencesKey("radiostarSyncMirrorYoutube")
+val RadioStarSyncMirrorScrobblerKey = booleanPreferencesKey("radiostarSyncMirrorScrobbler")
+
+// Optional overrides for Metrolist-hosted entry points.
+val RadioStarShareBaseUrlKey = stringPreferencesKey("radiostarShareBaseUrl")
+val RadioStarListenTogetherUrlKey = stringPreferencesKey("radiostarListenTogetherUrl")
+
+const val RADIOSTAR_DEFAULT_SERVER = "http://localhost:8787"
+const val RADIOSTAR_SHARE_BASE_URL = "https://radiostarserver.nzrs.link/listen"
+const val RADIOSTAR_LISTEN_TOGETHER_URL = "wss://radiostarserver.nzrs.link/ws"
+
 
 const val RADIOSTAR_DEFAULT_DJ_PROVIDER = "Gemini"
 const val RADIOSTAR_DEFAULT_DJ_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"

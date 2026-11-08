@@ -127,6 +127,10 @@ fun ListenTogetherScreen(
     val pendingSuggestions by listenTogetherManager.pendingSuggestions.collectAsStateWithLifecycle()
 
     val (listenTogetherInTopBar) = rememberPreference(ListenTogetherInTopBarKey, defaultValue = true)
+    val shareBaseUrl by rememberPreference(
+        com.metrolist.music.constants.RadioStarShareBaseUrlKey,
+        com.metrolist.music.constants.RADIOSTAR_SHARE_BASE_URL,
+    )
     val shouldShowTopBar = showTopBar || listenTogetherInTopBar
 
     var savedUsername by rememberPreference(ListenTogetherUsernameKey, "")
@@ -650,6 +654,10 @@ private fun RoomStatusCard(
     isHost: Boolean,
     context: Context,
 ) {
+    val shareBaseUrl by rememberPreference(
+        com.metrolist.music.constants.RadioStarShareBaseUrlKey,
+        com.metrolist.music.constants.RADIOSTAR_SHARE_BASE_URL,
+    )
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -696,8 +704,8 @@ private fun RoomStatusCard(
             if (isHost) {
                 Spacer(modifier = Modifier.height(16.dp))
                 val inviteLink =
-                    remember(roomCode) {
-                        "https://metrolist.cc/listen?code=$roomCode"
+                    remember(roomCode, shareBaseUrl) {
+                        "$shareBaseUrl?code=$roomCode"
                     }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

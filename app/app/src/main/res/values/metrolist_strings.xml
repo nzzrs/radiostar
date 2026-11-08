@@ -1012,4 +1012,27 @@
     <string name="radiostar_auth_network_error">Network error. Check the server URL and try again.</string>
     <string name="radiostar_auth_failed">Authentication failed</string>
     <string name="radiostar_auth_set_server">Set the embedding server URL first.</string>
+    <string name="radiostar_dislike">Dislike</string>
+    <string name="radiostar_disliked">Disliked</string>
+    <string name="radiostar_sync">Sync</string>
+    <string name="radiostar_sync_enable">Sync settings and reactions</string>
+    <string name="radiostar_sync_enable_desc">Uses the server account. Likes and dislikes stay authoritative on this server.</string>
+    <string name="radiostar_sync_passphrase">Encryption passphrase</string>
+    <string name="radiostar_sync_passphrase_set">Set. Secrets are encrypted on this device before upload.</string>
+    <string name="radiostar_sync_passphrase_missing">Not set. Tokens and API keys are not synced.</string>
+    <string name="radiostar_sync_passphrase_hint">At least 8 characters. It never leaves this device.</string>
+    <string name="radiostar_sync_wrong_passphrase">Wrong passphrase for this account</string>
+    <string name="radiostar_sync_now">Sync now</string>
+    <string name="radiostar_sync_mirror_youtube">Mirror reactions to YouTube</string>
+    <string name="radiostar_sync_mirror_youtube_desc">Like/dislike the signed-in YouTube Music account when it is available.</string>
+    <string name="radiostar_sync_mirror_scrobbler">Mirror reactions to scrobbler</string>
+    <string name="radiostar_sync_mirror_scrobbler_desc">Send love/hate feedback to the configured scrobble service and read it back.</string>
+    <string name="radiostar_lastfm_unlove_warning">Last.fm only exposes loved tracks. Unloving a track on Last.fm will not remove the like here. Unlike it in RadioStar.</string>
+    <string name="radiostar_lastfm_unlove_title">Last.fm sync limit</string>
+    <string name="radiostar_scrobble_outbound">Submit listens</string>
+    <string name="radiostar_scrobble_outbound_desc">Off stops RadioStar from scrobbling. Likes, disliked tracks and history import still work, so another app can scrobble in parallel.</string>
+    <string name="radiostar_infra">Metrolist-hosted entry points</string>
+    <string name="radiostar_share_base">Share link base</string>
+    <string name="radiostar_listen_together_server">Listen Together server</string>
+    <string name="radiostar_infra_hint">Point these at your own deployment instead of the upstream Metrolist servers.</string>
 </resources>

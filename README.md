@@ -36,6 +36,15 @@ refresh. Imported listens are the primary anchor and taste signal.
 ListenBrainz, Custom or External scrobbler. **Advanced telemetry** is local,
 opt-in and off by default; it never leaves the phone.
 
+**Sync** (optional) uses the same server account. Settings and like/dislike
+reactions sync across linked devices; the server is the authority. Secret
+settings are encrypted on the phone with a passphrase-derived key, so tokens,
+API keys and the YouTube cookie are stored on the server only as ciphertext.
+Reactions can also mirror to the signed-in YouTube account and to the
+configured scrobbler (Last.fm love, ListenBrainz love/hate feedback). Turning
+off outbound listen submission stops scrobbles but keeps likes and reaction
+mirroring, so RadioStar can run beside another Android scrobbler.
+
 ## Build and run
 
 ```bash
@@ -63,7 +72,7 @@ Set the public URL in `Settings → RadioStar → Embedding server`, or for
 automated tests:
 
 ```bash
-adb shell settings put global radiostar_embed_server https://embed.example.com
+adb shell settings put global radiostar_embed_server https://radiostarserver.nzrs.link
 ```
 
 ## Tests

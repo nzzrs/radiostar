@@ -89,6 +89,7 @@
 
                 <data android:scheme="https" />
                 <data android:host="metrolist.cc" />
+                <data android:host="radiostarserver.nzrs.link" />
                 <data android:pathPrefix="/listen" />
             </intent-filter>
 

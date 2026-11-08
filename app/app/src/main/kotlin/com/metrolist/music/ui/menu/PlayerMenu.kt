@@ -77,6 +77,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadService
 import com.metrolist.music.LocalNavController
+import com.metrolist.music.LocalSyncUtils
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
@@ -117,6 +118,7 @@ fun PlayerMenu(
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
+    val syncUtils = LocalSyncUtils.current
     val playerVolume = playerConnection.service.playerVolume.collectAsStateWithLifecycle()
 
     // Cast state for volume control - safely access castConnectionHandler to prevent crashes
@@ -133,6 +135,10 @@ fun PlayerMenu(
     val castDeviceName by castHandler?.castDeviceName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf<String?>(null) }
 
     val varispeedMode by rememberPreference(VarispeedKey, defaultValue = false)
+    val shareBaseUrl by rememberPreference(
+        com.metrolist.music.constants.RadioStarShareBaseUrlKey,
+        com.metrolist.music.constants.RADIOSTAR_SHARE_BASE_URL,
+    )
 
     val librarySong by database.song(mediaMetadata.id).collectAsStateWithLifecycle(initialValue = null)
     val coroutineScope = rememberCoroutineScope()
@@ -348,6 +354,26 @@ fun PlayerMenu(
                             },
                             text = stringResource(R.string.add_to_playlist),
                             onClick = { showChoosePlaylistDialog = true },
+                        ),
+                        NewAction(
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.thumb_down),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(32.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            text = stringResource(R.string.radiostar_dislike),
+                            onClick = {
+                                val entity = librarySong?.song ?: mediaMetadata.toSongEntity()
+                                syncUtils.dislikeSong(
+                                    entity,
+                                    mediaMetadata.artists.joinToString(", ") { it.name },
+                                )
+                                Toast.makeText(context, R.string.radiostar_disliked, Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            },
                         ),
                         NewAction(
                             icon = {
@@ -928,6 +954,10 @@ fun ListenTogetherDialog(
     val context = LocalContext.current
     val listenTogetherManager = com.metrolist.music.LocalListenTogetherManager.current
     val joiningRoomTemplate = stringResource(R.string.joining_room)
+    val shareBaseUrl by rememberPreference(
+        com.metrolist.music.constants.RadioStarShareBaseUrlKey,
+        com.metrolist.music.constants.RADIOSTAR_SHARE_BASE_URL,
+    )
 
     // Handle case where manager is not available
     if (listenTogetherManager == null) {
@@ -1428,8 +1458,8 @@ fun ListenTogetherDialog(
                             if (isHost) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                 val inviteLink =
-                                    remember(room.roomCode) {
-                                        "https://metrolist.cc/listen?code=${room.roomCode}"
+                                    remember(room.roomCode, shareBaseUrl) {
+                                        "$shareBaseUrl?code=${room.roomCode}"
                                     }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
