@@ -41,11 +41,13 @@ import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
 import com.metrolist.music.recommend.PlaylistHorizon
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
+import com.metrolist.music.ui.component.GeneratedPlaylistArtwork
 
 /**
- * Home shelf with the generated playlists. Two horizon sections keep daily and
- * weekly lists from competing in one long row. Tapping a card opens it; the
- * play button starts it without navigating.
+ * Home shelf with the generated playlists. The DJ hero sits with the RadioStar
+ * block instead of trailing it, and two horizon sections keep daily and weekly
+ * lists from competing in one long row. Tapping a card opens it; the play button
+ * starts it without navigating.
  */
 @Composable
 fun RadioStarShelf(
@@ -53,6 +55,8 @@ fun RadioStarShelf(
     onOpen: (String) -> Unit,
     onPlay: (RadioStarPlaylistRepository.Card) -> Unit,
     modifier: Modifier = Modifier,
+    artworkOpacity: Float = 0.45f,
+    djContent: (@Composable () -> Unit)? = null,
 ) {
     val daily = cards.filter { it.horizon == PlaylistHorizon.DAILY }
     val weekly = cards.filter { it.horizon == PlaylistHorizon.WEEKLY }
@@ -79,12 +83,14 @@ fun RadioStarShelf(
             )
         }
 
+        djContent?.invoke()
+
         if (cards.isEmpty()) {
             Card(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 colors =
                     CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -112,6 +118,7 @@ fun RadioStarShelf(
                 HorizonSection(
                     title = stringResource(R.string.radiostar_daily),
                     cards = daily,
+                    artworkOpacity = artworkOpacity,
                     onOpen = onOpen,
                     onPlay = onPlay,
                 )
@@ -120,6 +127,7 @@ fun RadioStarShelf(
                 HorizonSection(
                     title = stringResource(R.string.radiostar_weekly),
                     cards = weekly,
+                    artworkOpacity = artworkOpacity,
                     onOpen = onOpen,
                     onPlay = onPlay,
                 )
@@ -132,6 +140,7 @@ fun RadioStarShelf(
 private fun HorizonSection(
     title: String,
     cards: List<RadioStarPlaylistRepository.Card>,
+    artworkOpacity: Float,
     onOpen: (String) -> Unit,
     onPlay: (RadioStarPlaylistRepository.Card) -> Unit,
 ) {
@@ -148,6 +157,7 @@ private fun HorizonSection(
         items(cards, key = { it.id }) { card ->
             PlaylistCard(
                 card = card,
+                artworkOpacity = artworkOpacity,
                 onClick = { onOpen(card.id) },
                 onPlay = { onPlay(card) },
             )
@@ -158,6 +168,7 @@ private fun HorizonSection(
 @Composable
 private fun PlaylistCard(
     card: RadioStarPlaylistRepository.Card,
+    artworkOpacity: Float,
     onClick: () -> Unit,
     onPlay: () -> Unit,
 ) {
@@ -172,17 +183,32 @@ private fun PlaylistCard(
             ),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(accent.copy(alpha = 0.32f), Color.Transparent),
+        Box(modifier = Modifier.fillMaxSize()) {
+            GeneratedPlaylistArtwork(
+                seeds = card.artworkSeeds,
+                accent = accent,
+                opacity = artworkOpacity,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                0.4f to Color.Transparent,
+                                0.65f to Color.Transparent,
+                                1f to MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                            ),
                         ),
-                    ).padding(16.dp),
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            )
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+            ) {
                 Text(
                     text = card.title,
                     style = MaterialTheme.typography.titleMedium,
