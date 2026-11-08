@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Build launcher assets from the RadioStar source artwork.
 
-Source: docs/idea/new app icon.jpeg (local, gitignored). The script removes
-only the flat background for adaptive icons; it never crops the strawberry or
-headphones. Legacy icons keep the full square artwork with rounded corners.
+Source: docs/idea/new app icon.jpeg (local, gitignored). The source is already
+a square, so the launcher assets keep the whole frame and only rescale it.
+Legacy icons get rounded corners; adaptive icons place the same square inside
+the safe zone so a launcher mask never cuts the artwork. A subject-only
+silhouette is still used for the Android themed (monochrome) icon.
 """
 
 from __future__ import annotations
@@ -24,6 +26,10 @@ LEGACY_SIZES = {
     "xxxhdpi": 192,
 }
 ADAPTIVE_SIZE = 432
+# Keep the strawberry and headphones at the same visual size as before, inside
+# the adaptive icon safe area. The flat beige margin may extend under the
+# launcher mask, but no part of the artwork is trimmed.
+ADAPTIVE_SUBJECT_RATIO = 0.62
 
 
 def subject_layer(image: Image.Image) -> Image.Image:
@@ -38,23 +44,44 @@ def subject_layer(image: Image.Image) -> Image.Image:
     return rgba
 
 
-def fit_centered(image: Image.Image, canvas_size: int, content_ratio: float) -> Image.Image:
-    bbox = image.getbbox()
-    if bbox is None:
-        return Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-    trimmed = image.crop(bbox)
-    limit = int(canvas_size * content_ratio)
-    scale = min(limit / trimmed.width, limit / trimmed.height)
-    resized = trimmed.resize(
-        (max(1, round(trimmed.width * scale)), max(1, round(trimmed.height * scale))),
+def place_image(
+    image: Image.Image,
+    canvas_size: int,
+    subject_bbox: tuple[int, int, int, int],
+    subject_ratio: float,
+) -> Image.Image:
+    """Place the whole image so its subject fills the requested ratio.
+
+    The image is never trimmed. Only flat background may fall outside the
+    canvas, which lets the adaptive mask round the icon without cutting the
+    strawberry or the headphones.
+    """
+    subject_size = max(subject_bbox[2] - subject_bbox[0], subject_bbox[3] - subject_bbox[1])
+    scale = (canvas_size * subject_ratio) / subject_size
+    resized = image.resize(
+        (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
         Image.LANCZOS,
     )
+    subject_center_x = (subject_bbox[0] + subject_bbox[2]) / 2 * scale
+    subject_center_y = (subject_bbox[1] + subject_bbox[3]) / 2 * scale
     canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-    canvas.alpha_composite(
+    canvas.paste(
         resized,
-        ((canvas_size - resized.width) // 2, (canvas_size - resized.height) // 2),
+        (
+            round(canvas_size / 2 - subject_center_x),
+            round(canvas_size / 2 - subject_center_y),
+        ),
+        resized,
     )
     return canvas
+
+
+def full_square_around_subject(image: Image.Image, canvas_size: int, subject_ratio: float) -> Image.Image:
+    subject = subject_layer(image)
+    bbox = subject.getbbox()
+    if bbox is None:
+        return Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    return place_image(image, canvas_size, bbox, subject_ratio)
 
 
 def rounded(image: Image.Image, radius_ratio: float) -> Image.Image:
@@ -79,15 +106,25 @@ def circle(image: Image.Image) -> Image.Image:
 def main() -> int:
     source = Image.open(SOURCE).convert("RGBA")
     subject = subject_layer(source)
+    subject_bbox = subject.getbbox()
 
-    foreground = fit_centered(subject, ADAPTIVE_SIZE, 0.62)
-    foreground.save(RES / "drawable-nodpi" / "ic_launcher_foreground.png")
-    foreground.save(RES / "drawable-nodpi" / "ic_launcher_foreground_v31.png")
-    foreground.save(RES / "drawable" / "ic_launcher_static_foreground.png")
+    # In-app logo keeps the cut-out subject. Launcher layers use the whole
+    # square artwork, scaled so no part of the subject is clipped.
+    subject_foreground = (
+        place_image(subject, ADAPTIVE_SIZE, subject_bbox, ADAPTIVE_SUBJECT_RATIO)
+        if subject_bbox is not None
+        else Image.new("RGBA", (ADAPTIVE_SIZE, ADAPTIVE_SIZE), (0, 0, 0, 0))
+    )
+    subject_foreground.save(RES / "drawable-nodpi" / "ic_launcher_foreground.png")
 
-    monochrome = Image.new("RGBA", foreground.size, (255, 255, 255, 0))
-    white = Image.new("RGBA", foreground.size, (255, 255, 255, 255))
-    monochrome.paste(white, (0, 0), foreground.getchannel("A"))
+    artwork = full_square_around_subject(source, ADAPTIVE_SIZE, ADAPTIVE_SUBJECT_RATIO)
+    artwork.save(RES / "drawable-nodpi" / "ic_launcher_artwork.png")
+    artwork.save(RES / "drawable-nodpi" / "ic_launcher_foreground_v31.png")
+    artwork.save(RES / "drawable" / "ic_launcher_static_foreground.png")
+
+    monochrome = Image.new("RGBA", subject_foreground.size, (255, 255, 255, 0))
+    white = Image.new("RGBA", subject_foreground.size, (255, 255, 255, 255))
+    monochrome.paste(white, (0, 0), subject_foreground.getchannel("A"))
     monochrome.save(RES / "drawable-nodpi" / "ic_launcher_monochrome.png")
 
     for density, size in LEGACY_SIZES.items():
