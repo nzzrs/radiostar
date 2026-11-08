@@ -2608,12 +2608,10 @@ class MusicService :
         reason: Int,
     ) {
         finishTelemetry(
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
-            ) {
-                TelemetryEventType.COMPLETE
-            } else {
-                TelemetryEventType.SKIP
+            when (reason) {
+                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> TelemetryEventType.COMPLETE
+                Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> TelemetryEventType.REPLAY
+                else -> TelemetryEventType.SKIP
             },
         )
         // Only natural completion transitions mark the previous track as fully cached,
@@ -5454,7 +5452,7 @@ class MusicService :
         recordTelemetry(
             type,
             positionMs = telemetryPositionMs,
-            completed = type == TelemetryEventType.COMPLETE,
+            completed = type == TelemetryEventType.COMPLETE || type == TelemetryEventType.REPLAY,
         )
         telemetrySong = null
         telemetryStarted = false
@@ -5484,6 +5482,7 @@ class MusicService :
                 songId = song.id,
                 title = song.title,
                 artist = song.artists.joinToString { it.name },
+                album = song.album?.title,
                 playlist = playlist,
                 seed = seed,
                 positionMs = positionMs ?: telemetryPositionMs,
@@ -5491,6 +5490,7 @@ class MusicService :
                 fromMs = fromMs,
                 toMs = toMs,
                 completed = completed,
+                facets = com.metrolist.music.recommend.GoBeyondGateway.facets(playlist),
             )
         scope.launch(Dispatchers.IO) { TelemetryStore.record(this@MusicService, event) }
     }

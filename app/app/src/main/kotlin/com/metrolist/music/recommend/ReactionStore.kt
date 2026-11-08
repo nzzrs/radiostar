@@ -7,6 +7,10 @@ package com.metrolist.music.recommend
 
 import android.content.Context
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /** A like (1), dislike (-1) or cleared (0) track reaction. */
@@ -31,9 +35,10 @@ data class StoredReaction(
  * without migrating the database.
  */
 class ReactionStore(
-    context: Context,
+    private val context: Context,
 ) {
     private val file = File(context.filesDir, FILE_NAME)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loaded = false
     private var current: LinkedHashMap<String, StoredReaction> = LinkedHashMap()
     private var maxLocalSeq = 0L
@@ -81,6 +86,29 @@ class ReactionStore(
             )
         append(reaction)
         current[key] = reaction
+        if (rating != 0) {
+            val type =
+                if (rating > 0) TelemetryEventType.LIKE else TelemetryEventType.DISLIKE
+            scope.launch {
+                TelemetryStore.record(
+                    context,
+                    TelemetryStore.Event(
+                        type = type,
+                        songId = videoId,
+                        title = title,
+                        artist = artist,
+                        playlist = null,
+                        seed = null,
+                        positionMs = null,
+                        durationMs = durationSeconds?.toLong()?.times(1000),
+                        completed = false,
+                        at = reaction.updatedAtMs,
+                        album = album,
+                        session = TelemetrySession.id,
+                    ),
+                )
+            }
+        }
         return reaction
     }
 

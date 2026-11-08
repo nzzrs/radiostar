@@ -65,6 +65,7 @@ EMBED_DAILY_ITEMS = int(os.environ.get("RADIOSTAR_EMBED_DAILY_ITEMS", "50000"))
 MAX_BODY_BYTES = 1 << 20
 MAX_AUTH_BODY_BYTES = 8 << 10
 MAX_ITEMS = 256
+MAX_TEXTS = 32
 MAX_SYNC_ITEMS = 500
 MAX_SYNC_KEY_LENGTH = 512
 MAX_SYNC_PAYLOAD_BYTES = 256 << 10
@@ -101,6 +102,28 @@ def parse_items(payload: Any) -> list[tuple[str, str]]:
         if not isinstance(title, str) or not title.strip():
             raise BadRequest(f"items[{index}].title must be a non-empty string")
         parsed.append((artist, title))
+    return parsed
+
+
+def parse_texts(payload: Any) -> list[str]:
+    """Validate free-text prompts for the semantic Go Beyond cards."""
+    if not isinstance(payload, dict):
+        raise BadRequest("body must be a JSON object")
+    texts = payload.get("texts")
+    if not isinstance(texts, list):
+        raise BadRequest("'texts' must be a list")
+    if len(texts) > MAX_TEXTS:
+        raise BadRequest(f"too many texts (max {MAX_TEXTS})")
+    if not texts:
+        raise BadRequest("'texts' must not be empty")
+
+    parsed: list[str] = []
+    for index, text in enumerate(texts):
+        if not isinstance(text, str) or not text.strip():
+            raise BadRequest(f"texts[{index}] must be a non-empty string")
+        if len(text) > 512:
+            raise BadRequest(f"texts[{index}] is too long")
+        parsed.append(text.strip())
     return parsed
 
 
@@ -444,6 +467,8 @@ class EmbedHandler(BaseHTTPRequestHandler):
                 self._handle_pairing_code()
             elif path == "/embed":
                 self._handle_embed()
+            elif path == "/embed/text":
+                self._handle_embed_text()
             elif path == "/sync/push":
                 self._handle_sync_push()
             else:
@@ -552,6 +577,29 @@ class EmbedHandler(BaseHTTPRequestHandler):
 
         with self.ctx.embed_lock:
             vectors = [self.ctx.embedder.embed(artist, title).tolist() for artist, title in items]
+        self._send_json(HTTPStatus.OK, {"vectors": vectors})
+
+    def _handle_embed_text(self) -> None:
+        allow_anonymous = self.ctx.auth_mode == "optional"
+        session = self._session(allow_anonymous=allow_anonymous)
+        identity = session.device_id if session is not None else "anonymous"
+        ip = self._client_ip()
+        if not self._rate(f"embed:device:{identity}", 60, 60):
+            self._send_error_json(HTTPStatus.TOO_MANY_REQUESTS, "too many requests", {"Retry-After": "60"})
+            return
+        if not self._rate(f"embed:ip:{ip}", 300, 60):
+            self._send_error_json(HTTPStatus.TOO_MANY_REQUESTS, "too many requests", {"Retry-After": "60"})
+            return
+
+        payload = self._read_json_body(MAX_BODY_BYTES)
+        texts = parse_texts(payload)
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        if not self.ctx.quota.take(identity, len(texts), day):
+            self._send_error_json(HTTPStatus.TOO_MANY_REQUESTS, "daily quota exceeded", {"Retry-After": "3600"})
+            return
+
+        with self.ctx.embed_lock:
+            vectors = [self.ctx.embedder.embed_text(text).tolist() for text in texts]
         self._send_json(HTTPStatus.OK, {"vectors": vectors})
 
     # -- DELETE --------------------------------------------------------

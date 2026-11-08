@@ -53,6 +53,64 @@ object EmbeddingClient {
         return vectors
     }
 
+    /**
+     * Embeds free-text prompts, such as a colour or mood description, in the
+     * same CLAP space as the artist/title vectors.
+     */
+    suspend fun embedText(
+        server: String,
+        texts: List<String>,
+        auth: ServerAuthStore,
+    ): List<FloatArray>? {
+        if (texts.isEmpty()) return emptyList()
+        val payload =
+            JSONObject().put(
+                "texts",
+                JSONArray().apply {
+                    texts.forEach { put(it) }
+                },
+            )
+
+        for (attempt in 0 until 2) {
+            val token = auth.accessToken(server) ?: return null
+            val request =
+                Request.Builder()
+                    .url("${server.trimEnd('/')}/embed/text")
+                    .header("Authorization", "Bearer $token")
+                    .post(payload.toString().toRequestBody(JSON))
+                    .build()
+            try {
+                http.newCall(request).execute().use { response ->
+                    val body = response.body.string()
+                    if (response.isSuccessful) {
+                        return parseVectors(body, texts.size)
+                    }
+                    val retryAfter = response.header("Retry-After")?.toLongOrNull()
+                    when {
+                        response.code == 401 && attempt == 0 -> {
+                            auth.invalidateAccess()
+                            delay(50)
+                        }
+                        response.code == 429 && attempt == 0 -> {
+                            delay(((retryAfter ?: 2L).coerceAtMost(10L)) * 1000L)
+                        }
+                        response.code >= 500 && attempt == 0 -> {
+                            delay(400)
+                        }
+                        else -> {
+                            Timber.tag(TAG).w("embed text http %d body=%s", response.code, body.take(300))
+                            return null
+                        }
+                    }
+                }
+            } catch (error: IOException) {
+                Timber.tag(TAG).w(error, "embed text request failed")
+                if (attempt == 0) delay(400) else return null
+            }
+        }
+        return null
+    }
+
     private suspend fun embedChunk(
         server: String,
         items: List<Item>,

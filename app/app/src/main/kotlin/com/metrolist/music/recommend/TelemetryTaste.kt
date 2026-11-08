@@ -12,6 +12,8 @@ import kotlin.math.exp
 
 private fun artistKey(name: String): String = name.trim().lowercase(Locale.ROOT)
 
+internal fun normalizeArtist(name: String): String = artistKey(name)
+
 /**
  * Turns the local telemetry log into a light taste signal.
  *
@@ -114,9 +116,12 @@ object TelemetryTaste {
      * Positive values mean the listener finishes the track; negative values
      * mean they skip it. A pause or a plain play carries no preference.
      */
-    private fun contribution(event: TelemetryStore.Event): Double? =
+    internal fun contribution(event: TelemetryStore.Event): Double? =
         when (event.type) {
             TelemetryEventType.COMPLETE -> 1.0
+            TelemetryEventType.REPLAY -> 1.25
+            TelemetryEventType.LIKE -> 1.5
+            TelemetryEventType.DISLIKE -> -1.6
             TelemetryEventType.SKIP -> {
                 val ratio =
                     if (event.durationMs != null && event.durationMs > 0L &&
