@@ -81,7 +81,7 @@ Environment variables have safe defaults. Command line flags override them.
 | `RADIOSTAR_PORT` | `8787` | Bind port. |
 | `RADIOSTAR_AUTH_MODE` | `required` | `required`, `optional` or `off` (development only). |
 | `RADIOSTAR_DB_PATH` | `server/data/auth.sqlite` | Accounts, devices and sync rows. |
-| `RADIOSTAR_CACHE_PATH` | `spike/clap/out/text_cache.sqlite` | Text embedding cache. |
+| `RADIOSTAR_CACHE_PATH` | `server/data/text_cache.sqlite` | Text embedding cache. |
 | `RADIOSTAR_CLAP_CHECKPOINT` | unset | Optional path to `630k-audioset-best.pt`. |
 | `RADIOSTAR_TRUST_PROXY` | empty | Set `cloudflare` to trust `CF-Connecting-IP` from a loopback peer. |
 | `RADIOSTAR_MAX_THREADS` | `16` | Handler thread cap. |

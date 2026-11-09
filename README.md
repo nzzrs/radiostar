@@ -85,14 +85,19 @@ Docker, configuration and troubleshooting.
 ## Tests
 
 ```bash
-python3 -m pytest spike -q
-.venv/bin/python -m pytest server/tests -q
-python3 -m unittest scripts/test_listenbrainz_export.py
+# App
 cd app && ./gradlew :app:testFossDebugUnitTest
+
+# Server
+.venv/bin/python -m pytest server/tests -q
+
+# Scripts
+python3 -m unittest scripts/test_listenbrainz_export.py
 ```
 
 The server suite uses a fake embedder and a temporary database; it never loads
-the CLAP model.
+the CLAP model. The archived `spike/` reference implementations have their own
+tests (`python3 -m pytest spike -q`), but they are not part of the app.
 
 ## Docs
 

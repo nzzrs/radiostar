@@ -7,6 +7,7 @@ import pytest
 from server.config import (
     DEFAULT_CACHE_PATH,
     DEFAULT_DB_PATH,
+    SERVER_DIR,
     ConfigError,
     Settings,
 )
@@ -24,6 +25,13 @@ def test_defaults_are_local_and_safe():
     assert settings.db_path == DEFAULT_DB_PATH
     assert settings.cache_path == DEFAULT_CACHE_PATH
     assert settings.checkpoint is None
+
+
+def test_cache_defaults_next_to_server_data():
+    settings = Settings.from_env({})
+
+    assert settings.cache_path == SERVER_DIR / "data" / "text_cache.sqlite"
+    assert "spike" not in settings.cache_path.parts
 
 
 def test_environment_overrides_every_setting(tmp_path: Path):

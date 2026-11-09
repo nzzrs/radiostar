@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import Any
 
 SERVER_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SERVER_DIR.parent
 DEFAULT_DB_PATH = SERVER_DIR / "data" / "auth.sqlite"
-DEFAULT_CACHE_PATH = REPO_ROOT / "spike" / "clap" / "out" / "text_cache.sqlite"
+DEFAULT_CACHE_PATH = SERVER_DIR / "data" / "text_cache.sqlite"
 
 AUTH_MODES = frozenset({"off", "optional", "required"})
 
