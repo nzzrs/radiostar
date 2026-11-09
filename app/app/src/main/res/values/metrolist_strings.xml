@@ -1012,6 +1012,8 @@
     <string name="radiostar_artwork">Playlist artwork</string>
     <string name="radiostar_artwork_desc">Generated from the tracks in each list. Lower it to keep the cards discreet.</string>
     <string name="radiostar_dj_settings">DJ settings</string>
+    <string name="radiostar_dj_speaking">Speaking…</string>
+    <string name="radiostar_dj_swipe_close">Swipe down to close</string>
     <string name="radiostar_dj_no_tracks">No DJ tracks available yet. Build your DJ playlists first.</string>
     <string name="radiostar_dj_player_not_ready">Player is not ready yet. Try again in a moment.</string>
     <string name="radiostar_dj_disabled">AI DJ is disabled.</string>
