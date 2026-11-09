@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.screens.search
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -47,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -92,20 +96,25 @@ fun SearchScreen(
     val scrollToTopCount by savedStateHandle.getStateFlow("scrollToTopCount", 0).collectAsStateWithLifecycle(initialValue = 0)
 
     var lastHandledCount by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        if (!isPlayerExpanded) {
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 0 && !isPlayerExpanded) {
             kotlinx.coroutines.delay(100)
             try {
                 focusRequester.requestFocus()
                 keyboardController?.show()
             } catch (e: Exception) {
             }
+        } else if (selectedTab == 1) {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
         }
     }
     LaunchedEffect(scrollToTopCount) {
         if (scrollToTopCount > lastHandledCount) {
             lastHandledCount = scrollToTopCount
             isHandlingScrollToTop = true
+            selectedTab = 0
 
             kotlinx.coroutines.delay(100)
 
@@ -135,6 +144,7 @@ fun SearchScreen(
             return
         }
 
+        selectedTab = 0
         focusManager.clearFocus()
 
         when (val parsedUrl = YouTubeUrlParser.parse(searchQuery)) {
@@ -180,6 +190,20 @@ fun SearchScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    if (selectedTab == 1) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                painter = painterResource(R.drawable.explore_outlined),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                text = stringResource(R.string.go_beyond_title),
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(start = 10.dp),
+                            )
+                        }
+                    } else {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -261,6 +285,7 @@ fun SearchScreen(
                             }
                         }
                     }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
@@ -279,37 +304,73 @@ fun SearchScreen(
         },
         containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.background,
     ) { paddingValues ->
-        Box(
+        Column(
             modifier =
                 Modifier
                     .padding(top = paddingValues.calculateTopPadding())
                     .fillMaxSize(),
         ) {
-            when (searchSource) {
-                SearchSource.LOCAL -> {
-                    LocalSearchScreen(
-                        query = query.text,
-                        onDismiss = { navController.navigateUp() },
-                        pureBlack = pureBlack,
-                    )
+            PrimaryTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = {
+                        selectedTab = 0
+                        focusRequester.requestFocus()
+                    },
+                    text = { Text(stringResource(R.string.search)) },
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = {
+                        selectedTab = 1
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    },
+                    text = { Text(stringResource(R.string.go_beyond_tab)) },
+                )
+            }
+
+            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
+                when {
+                    selectedTab == 1 -> {
+                        GoBeyondScreen(
+                            onOpenPlaylist = { playlistId ->
+                                navController.navigate("local_playlist/$playlistId")
+                            },
+                            onOpenTelemetry = { navController.navigate("settings/telemetry") },
+                        )
+                    }
+
+                    searchSource == SearchSource.LOCAL -> {
+                        LocalSearchScreen(
+                            query = query.text,
+                            onDismiss = { navController.navigateUp() },
+                            pureBlack = pureBlack,
+                        )
+                    }
+
+                    else -> {
+                        OnlineSearchScreen(
+                            query = query.text,
+                            onQueryChange = { query = it },
+                            onSearch = onSearchFromSuggestion,
+                            onDismiss = { /* Don't dismiss when searching from suggestions */ },
+                            pureBlack = pureBlack,
+                        )
+                    }
                 }
 
-                SearchSource.ONLINE -> {
-                    OnlineSearchScreen(
-                        query = query.text,
-                        onQueryChange = { query = it },
-                        onSearch = onSearchFromSuggestion,
-                        onDismiss = { /* Don't dismiss when searching from suggestions */ },
-                        pureBlack = pureBlack,
+                if (selectedTab == 0) {
+                    HideOnScrollFAB(
+                        lazyListState = lazyListState,
+                        icon = R.drawable.mic,
+                        onClick = { navController.navigate("recognition") },
                     )
                 }
             }
-
-            HideOnScrollFAB(
-                lazyListState = lazyListState,
-                icon = R.drawable.mic,
-                onClick = { navController.navigate("recognition") },
-            )
         }
     }
 

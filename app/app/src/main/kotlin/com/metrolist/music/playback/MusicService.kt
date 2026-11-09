@@ -468,6 +468,9 @@ class MusicService :
     private val sessionState = SessionState()
     private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
     @Volatile private var radioStarDj = false
+
+    /** True while a DJ session owns the queue and playback order. */
+    val isDjSessionActive: Boolean get() = radioStarDj
     @Volatile private var aiDjEnabled = true
     @Volatile private var djSessionId = 0
     @Volatile private var djAiEnabled = false
@@ -1674,62 +1677,76 @@ class MusicService :
 
     private fun updateNotification(isLiked: Boolean? = currentSong.value?.song?.let { if (it.isEpisode) it.inLibrary != null else it.liked }) {
         mediaSession?.setCustomLayout(
-            listOf(
-                CommandButton
-                    .Builder()
-                    .setDisplayName(getString(if (player.shuffleModeEnabled) R.string.action_shuffle_off else R.string.action_shuffle_on))
-                    .setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
-                    .setSessionCommand(CommandToggleShuffle)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(
-                        getString(
-                            if (isLiked == true) {
-                                R.string.action_remove_like
-                            } else {
-                                R.string.action_like
-                            },
-                        ),
-                    ).setIconResId(if (isLiked == true) R.drawable.ic_heart else R.drawable.ic_heart_outline)
-                    .setSessionCommand(CommandToggleLike)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(
-                        getString(
-                            when (player.repeatMode) {
-                                REPEAT_MODE_OFF -> R.string.repeat_mode_off
-                                REPEAT_MODE_ONE -> R.string.repeat_mode_one
-                                REPEAT_MODE_ALL -> R.string.repeat_mode_all
-                                else -> throw IllegalStateException()
-                            },
-                        ),
-                    ).setIconResId(
-                        when (player.repeatMode) {
-                            REPEAT_MODE_OFF -> R.drawable.repeat
-                            REPEAT_MODE_ONE -> R.drawable.repeat_one_on
-                            REPEAT_MODE_ALL -> R.drawable.repeat_on
-                            else -> throw IllegalStateException()
-                        },
-                    ).setSessionCommand(CommandToggleRepeatMode)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(getString(R.string.start_radio))
-                    .setIconResId(R.drawable.radio)
-                    .setSessionCommand(CommandToggleStartRadio)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(getString(R.string.android_auto_target_playlist))
-                    .setIconResId(R.drawable.playlist_add)
-                    .setSessionCommand(CommandAddToTargetPlaylist)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
-            ),
+            buildList {
+                if (!radioStarDj) {
+                    add(
+                        CommandButton
+                            .Builder()
+                            .setDisplayName(getString(if (player.shuffleModeEnabled) R.string.action_shuffle_off else R.string.action_shuffle_on))
+                            .setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
+                            .setSessionCommand(CommandToggleShuffle)
+                            .build(),
+                    )
+                }
+                add(
+                    CommandButton
+                        .Builder()
+                        .setDisplayName(
+                            getString(
+                                if (isLiked == true) {
+                                    R.string.action_remove_like
+                                } else {
+                                    R.string.action_like
+                                },
+                            ),
+                        ).setIconResId(if (isLiked == true) R.drawable.ic_heart else R.drawable.ic_heart_outline)
+                        .setSessionCommand(CommandToggleLike)
+                        .setEnabled(currentSong.value != null)
+                        .build(),
+                )
+                if (!radioStarDj) {
+                    add(
+                        CommandButton
+                            .Builder()
+                            .setDisplayName(
+                                getString(
+                                    when (player.repeatMode) {
+                                        REPEAT_MODE_OFF -> R.string.repeat_mode_off
+                                        REPEAT_MODE_ONE -> R.string.repeat_mode_one
+                                        REPEAT_MODE_ALL -> R.string.repeat_mode_all
+                                        else -> throw IllegalStateException()
+                                    },
+                                ),
+                            ).setIconResId(
+                                when (player.repeatMode) {
+                                    REPEAT_MODE_OFF -> R.drawable.repeat
+                                    REPEAT_MODE_ONE -> R.drawable.repeat_one_on
+                                    REPEAT_MODE_ALL -> R.drawable.repeat_on
+                                    else -> throw IllegalStateException()
+                                },
+                            ).setSessionCommand(CommandToggleRepeatMode)
+                            .build(),
+                    )
+                }
+                add(
+                    CommandButton
+                        .Builder()
+                        .setDisplayName(getString(R.string.start_radio))
+                        .setIconResId(R.drawable.radio)
+                        .setSessionCommand(CommandToggleStartRadio)
+                        .setEnabled(currentSong.value != null)
+                        .build(),
+                )
+                add(
+                    CommandButton
+                        .Builder()
+                        .setDisplayName(getString(R.string.android_auto_target_playlist))
+                        .setIconResId(R.drawable.playlist_add)
+                        .setSessionCommand(CommandAddToTargetPlaylist)
+                        .setEnabled(currentSong.value != null)
+                        .build(),
+                )
+            },
         )
     }
 
@@ -2608,12 +2625,10 @@ class MusicService :
         reason: Int,
     ) {
         finishTelemetry(
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
-            ) {
-                TelemetryEventType.COMPLETE
-            } else {
-                TelemetryEventType.SKIP
+            when (reason) {
+                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> TelemetryEventType.COMPLETE
+                Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> TelemetryEventType.REPLAY
+                else -> TelemetryEventType.SKIP
             },
         )
         // Only natural completion transitions mark the previous track as fully cached,
@@ -2939,6 +2954,14 @@ class MusicService :
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+        if (radioStarDj) {
+            if (shuffleModeEnabled) {
+                player.shuffleModeEnabled = false
+            } else {
+                updateNotification()
+            }
+            return
+        }
         updateNotification()
         if (shuffleModeEnabled) {
             if (player.mediaItemCount == 0) return
@@ -2964,6 +2987,14 @@ class MusicService :
     }
 
     override fun onRepeatModeChanged(repeatMode: Int) {
+        if (radioStarDj) {
+            if (repeatMode != REPEAT_MODE_OFF) {
+                player.repeatMode = REPEAT_MODE_OFF
+            } else {
+                updateNotification()
+            }
+            return
+        }
         updateNotification()
         scope.launch {
             safeDataStoreEdit { settings ->
@@ -4221,87 +4252,108 @@ class MusicService :
             .onFailure { Timber.tag("RadioStarTap").e(it, "embedder init failed") }
             .getOrNull()
 
+    /** Outcome of a user-requested DJ start. */
+    enum class DjStartResult { STARTED, DISABLED, EMPTY, FAILED }
+
     /** User pressed Start DJ. This is the only place a session replaces the queue. */
-    fun playDjSession(items: List<MediaItem>, persona: DjPersona) {
-        if (items.isEmpty()) return
-        scope.launch(Dispatchers.Main) {
-            if (!aiDjEnabled) return@launch
-            val sessionId = ++djSessionId
-            player.stop()
-            player.setPauseAtEndOfMediaItems(false)
-            player.playWhenReady = false
-            player.setMediaItems(items, 0, 0L)
-            player.prepare()
-            currentQueue = EmptyQueue
-            queueTitle = null
-            originalQueueSize = items.size
-            radioStarDj = true
-            djPersona = persona
-            announcedPair = null
-            djBias = TelemetryBias.EMPTY
-            djLastSpeechIndex = -1
-            djLastSpeechAtMs = SystemClock.elapsedRealtime()
-            djSessionStartedAtMs = djLastSpeechAtMs
-            djLinksSpoken = 0
-            djHeldAtTrackEnd = false
-            resetDjPreparation()
-            DjSessionState.speaking(persona)
-            DjSessionState.requestPlayerOpen()
-            val announcer =
-                djAnnouncer
-                    ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
-                        .also { djAnnouncer = it }
-            announcer.setVoice(persona.pitch, persona.rate)
-            announcer.prepare()
-            val first = items.firstOrNull()?.mediaMetadata
-            val firstTitle = first?.title?.toString().orEmpty()
-            val firstArtist = first?.artist?.toString().orEmpty()
-            val fallback =
-                DjScript.intro(
-                    persona = persona,
-                    firstTitle = firstTitle,
-                    firstArtist = firstArtist,
-                    language = java.util.Locale.getDefault().language,
-                )
-            val startPlayback = {
-                if (radioStarDj && sessionId == djSessionId && ::player.isInitialized) {
-                    player.volume = calculateEffectiveVolume()
-                    player.play()
-                    prepareDjAnnouncementForCurrent()
-                }
-            }
-            val speak: (String) -> Unit = { line ->
-                val spoken =
-                    announcer.announce(
-                        line,
-                        "dj:intro:${System.nanoTime()}",
-                        onDone = {
-                            djLinksSpoken = 1
-                            djLastSpeechIndex = -1
-                            djLastSpeechAtMs = SystemClock.elapsedRealtime()
-                            scope.launch(Dispatchers.Main) { startPlayback() }
-                        },
+    suspend fun playDjSession(items: List<MediaItem>, persona: DjPersona): DjStartResult {
+        if (items.isEmpty()) {
+            Timber.tag("RadioStarDj").w("start rejected: empty queue")
+            return DjStartResult.EMPTY
+        }
+        if (!aiDjEnabled) {
+            Timber.tag("RadioStarDj").w("start rejected: AI DJ disabled")
+            return DjStartResult.DISABLED
+        }
+        return withContext(Dispatchers.Main) {
+            try {
+                val sessionId = ++djSessionId
+                player.stop()
+                player.setPauseAtEndOfMediaItems(false)
+                player.playWhenReady = false
+                player.setMediaItems(items, 0, 0L)
+                player.prepare()
+                currentQueue = EmptyQueue
+                queueTitle = null
+                originalQueueSize = items.size
+                radioStarDj = true
+                djPersona = persona
+                // The DJ owns the set order: shuffle and repeat would break it.
+                player.shuffleModeEnabled = false
+                player.repeatMode = REPEAT_MODE_OFF
+                updateNotification()
+                announcedPair = null
+                djBias = TelemetryBias.EMPTY
+                djLastSpeechIndex = -1
+                djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                djSessionStartedAtMs = djLastSpeechAtMs
+                djLinksSpoken = 0
+                djHeldAtTrackEnd = false
+                resetDjPreparation()
+                DjSessionState.speaking(persona)
+                DjSessionState.requestPlayerOpen()
+                val announcer =
+                    djAnnouncer
+                        ?: DjAnnouncer(this@MusicService) { ducked -> djHandler.post { applyDjDuck(ducked) } }
+                            .also { djAnnouncer = it }
+                announcer.setVoice(persona.pitch, persona.rate)
+                announcer.prepare()
+                val first = items.firstOrNull()?.mediaMetadata
+                val firstTitle = first?.title?.toString().orEmpty()
+                val firstArtist = first?.artist?.toString().orEmpty()
+                val fallback =
+                    DjScript.intro(
+                        persona = persona,
+                        firstTitle = firstTitle,
+                        firstArtist = firstArtist,
+                        language = java.util.Locale.getDefault().language,
                     )
-                if (!spoken) startPlayback()
-            }
-            if (djAiEnabled) {
-                scope.launch {
-                    val ai =
-                        kotlinx.coroutines.withTimeoutOrNull(5_000L) {
-                            DjAiCommentator.intro(this@MusicService, persona, firstTitle, firstArtist)
-                        }
-                    djHandler.post {
-                        if (radioStarDj && sessionId == djSessionId) speak(ai ?: fallback)
+                val startPlayback = {
+                    if (radioStarDj && sessionId == djSessionId && ::player.isInitialized) {
+                        player.volume = calculateEffectiveVolume()
+                        player.play()
+                        prepareDjAnnouncementForCurrent()
                     }
                 }
-            } else {
-                speak(fallback)
+                val speak: (String) -> Unit = { line ->
+                    val spoken =
+                        announcer.announce(
+                            line,
+                            "dj:intro:${System.nanoTime()}",
+                            onDone = {
+                                djLinksSpoken = 1
+                                djLastSpeechIndex = -1
+                                djLastSpeechAtMs = SystemClock.elapsedRealtime()
+                                scope.launch(Dispatchers.Main) { startPlayback() }
+                            },
+                        )
+                    if (!spoken) startPlayback()
+                }
+                if (djAiEnabled) {
+                    scope.launch {
+                        val ai =
+                            kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                                DjAiCommentator.intro(this@MusicService, persona, firstTitle, firstArtist)
+                            }
+                        djHandler.post {
+                            if (radioStarDj && sessionId == djSessionId) speak(ai ?: fallback)
+                        }
+                    }
+                } else {
+                    speak(fallback)
+                }
+                scope.launch(Dispatchers.IO) {
+                    val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
+                    if (radioStarDj && sessionId == djSessionId) djBias = loaded
+                }
+                Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
+                DjStartResult.STARTED
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag("RadioStarDj").e(e, "DJ start failed")
+                DjStartResult.FAILED
             }
-            scope.launch(Dispatchers.IO) {
-                val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
-                if (radioStarDj && sessionId == djSessionId) djBias = loaded
-            }
-            Timber.tag("RadioStarDj").i("start persona=%s tracks=%d", persona.displayName, items.size)
         }
     }
 
@@ -4321,6 +4373,7 @@ class MusicService :
             if (!isCrossfading) player.volume = calculateEffectiveVolume()
         }
         DjSessionState.idle()
+        updateNotification()
         Timber.tag("RadioStarDj").i("end session")
     }
 
@@ -5454,7 +5507,7 @@ class MusicService :
         recordTelemetry(
             type,
             positionMs = telemetryPositionMs,
-            completed = type == TelemetryEventType.COMPLETE,
+            completed = type == TelemetryEventType.COMPLETE || type == TelemetryEventType.REPLAY,
         )
         telemetrySong = null
         telemetryStarted = false
@@ -5484,6 +5537,7 @@ class MusicService :
                 songId = song.id,
                 title = song.title,
                 artist = song.artists.joinToString { it.name },
+                album = song.album?.title,
                 playlist = playlist,
                 seed = seed,
                 positionMs = positionMs ?: telemetryPositionMs,
@@ -5491,6 +5545,7 @@ class MusicService :
                 fromMs = fromMs,
                 toMs = toMs,
                 completed = completed,
+                facets = com.metrolist.music.recommend.GoBeyondGateway.facets(playlist),
             )
         scope.launch(Dispatchers.IO) { TelemetryStore.record(this@MusicService, event) }
     }

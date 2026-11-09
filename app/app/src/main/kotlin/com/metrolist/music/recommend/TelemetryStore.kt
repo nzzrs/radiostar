@@ -13,6 +13,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 enum class TelemetryEventType(
@@ -23,6 +24,13 @@ enum class TelemetryEventType(
     SKIP("skip"),
     SEEK("seek"),
     COMPLETE("complete"),
+
+    /** The track finished and immediately played again, a strong positive. */
+    REPLAY("replay"),
+
+    /** Explicit like/dislike. These outrank passive playback signals. */
+    LIKE("like"),
+    DISLIKE("dislike"),
 }
 
 /**
@@ -48,6 +56,13 @@ object TelemetryStore {
         val toMs: Long? = null,
         val completed: Boolean = false,
         val at: Long = System.currentTimeMillis(),
+        val album: String? = null,
+        val session: String? = null,
+        /**
+         * Facets of the generated Go Beyond playlist this play came from,
+         * such as `Brazil` or `Shoegaze`. Empty for ordinary queues.
+         */
+        val facets: List<String> = emptyList(),
     )
 
     suspend fun record(
@@ -103,6 +118,13 @@ object TelemetryStore {
                             toMs = json.optLong("toMs").takeIf { json.has("toMs") },
                             completed = json.optBoolean("completed", false),
                             at = json.optLong("at", 0L),
+                            album = json.optString("album").takeIf { it.isNotBlank() },
+                            session = json.optString("session").takeIf { it.isNotBlank() },
+                            facets =
+                                json.optJSONArray("facets")?.let { array ->
+                                    List(array.length()) { index -> array.optString(index) }
+                                        .filter { it.isNotBlank() }
+                                } ?: emptyList(),
                         ),
                     )
                 }
@@ -121,10 +143,11 @@ object TelemetryStore {
         JSONObject().apply {
             put("event", type.wireName)
             put("at", at)
-            put("session", TelemetrySession.id)
+            put("session", eventSession())
             songId?.let { put("songId", it) }
             title?.let { put("title", it) }
             artist?.let { put("artist", it) }
+            album?.let { put("album", it) }
             playlist?.let { put("playlist", it) }
             seed?.let { put("seed", it) }
             positionMs?.let { put("positionMs", it) }
@@ -132,7 +155,12 @@ object TelemetryStore {
             fromMs?.let { put("fromMs", it) }
             toMs?.let { put("toMs", it) }
             put("completed", completed)
+            if (facets.isNotEmpty()) {
+                put("facets", JSONArray(facets))
+            }
         }
+
+    private fun Event.eventSession(): String = session ?: TelemetrySession.id
 }
 
 object TelemetrySession {

@@ -109,6 +109,10 @@ delivered as playlists, never by changing what the user chose to play.
   Binds `127.0.0.1` by default and runs behind Cloudflare Tunnel or another
   HTTPS reverse proxy. `/embed` requires a device Bearer token; access tokens
   last 15 minutes and refresh tokens rotate.
+- **Sync server** `/sync/pull`, `/sync/push`, `/sync/status`, `/sync` on the
+  same base URL and the same device Bearer token. Config values and
+  like/dislike reactions are stored per user with a monotonic sequence; secret
+  config values are encrypted on the phone before upload.
 - **Scrobblers**:
   - Last.fm Web API: `user.getRecentTracks`, `track.scrobble`,
     `track.updateNowPlaying`.
@@ -163,7 +167,7 @@ app/
 ├── db/            Room entities/DAOs (songs, events, playlists)
 ├── lastfm/        Last.fm Web API client
 ├── recommend/     ScrobblerImporter/Sync, ScrobbleSink, TelemetryStore
-server/            Python text tower (/health, /auth/*, /embed, SQLite auth/cache)
+server/            Python text tower and sync API (/health, /auth/*, /embed, /sync)
 scripts/           ListenBrainz CSV export tool
 spike/             archived research evidence
 ```
@@ -209,7 +213,10 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
   - `playlist`, `playlist_song_map` — normal playlists, including generated.
 - JSONL:
   - `radiostar_listens.jsonl` — imported listens, append-only, deduplicated.
-  - `radiostar_telemetry.jsonl` — local opt-in play/pause/skip/seek/complete events.
+  - `radiostar_reactions.jsonl` — likes/dislikes with local sequence and
+    tombstones; `song.liked` remains the UI projection.
+  - `radiostar_telemetry.jsonl` — local opt-in play/pause/skip/seek/complete/
+    replay/like/dislike events, including album and Go Beyond facets.
 - DataStore:
   - `RadioStarDjKey` (AI DJ on/off), `RadioStarServerKey`,
     `RadioStarProfilesKey`, playlist stamps, per-service import checkpoints,
@@ -218,14 +225,34 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
 - Android Keystore:
   - AES/GCM key material for the DJ API key (`SecureKeyStore`).
 
-### 5.5 External text tower (`server/`)
+### 5.5 External text tower and sync API (`server/`)
 
-- Loads CLAP text tower once (~20 s).
+- Loads the CLAP text tower once (~20 s).
 - `GET /health` → `{"ok": true}`.
 - `POST /embed` → 512-d unit vectors, SQLite cache, one lock around the model.
+- `POST /embed/text` → 512-d vectors for free-text prompts (colour and mood
+  cards), cached in the same SQLite table.
+- `/auth/*`, `/sync/*` → device tokens, pairing codes, settings and reaction
+  sync against the same SQLite database.
 - Authenticated with per-device opaque tokens; accounts and devices in
   `server/data/auth.sqlite`, Argon2id passwords, one-time pairing codes.
 - Binds `127.0.0.1:8787` and expects Cloudflare Tunnel or another HTTPS proxy.
+- Entry point: `python -m server` with `setup`, `serve`, `doctor` and account
+  commands. `server/app.py` and `server/admin.py` remain compatibility entries.
+
+Module layout:
+
+```text
+server/
+├── cli.py             setup, serve, doctor and account commands
+├── config.py          validated settings from environment and flags
+├── context.py         shared application state
+├── api/               auth, embed, sync and validation routes
+├── http/              request handler, route table and bounded server
+├── auth.py            tokens, pairing, passwords and rate limits
+├── auth_store.py      SQLite persistence
+└── text_embedder.py   CLAP text tower and embedding cache
+```
 
 ## 6. Runtime View
 
@@ -350,6 +377,13 @@ Outbound scrobbling:
   full endpoint.
 - A destination token falls back to the import token, so a single ListenBrainz
   token can cover both directions. Offline retry is still a follow-up.
+- Reactions mirror independently of listen submission: Last.fm love/unlove,
+  ListenBrainz and compatible love/hate feedback. Outbound listen submission
+  has its own switch, so RadioStar can stay silent while another Android
+  scrobbler submits, yet still own likes/dislikes and read history.
+- Cross-device settings and reactions sync through the RadioStar server
+  account (D-22). The server is authoritative; conflicts are last-writer-wins
+  on `(updated_at_ms, device_id)`, and deletions are tombstones.
 
 ### 6.4 AI DJ session
 
@@ -419,70 +453,81 @@ events to the app's private files directory only when the user enables it.
 
 Recorded fields:
 
-- event type: play, pause, skip, seek or completion;
-- song id, title and artist;
+- event type: play, pause, skip, seek, completion, replay, like or dislike;
+- song id, title, artist and album;
 - position and duration;
-- wall-clock time, process session id;
-- playlist name and queue seed.
+- wall-clock time and process session id;
+- playlist name, queue seed and Go Beyond facets (country, genre, period,
+  colour, mood).
 
-Nothing is uploaded, and no audio or device identifier is written. The
-settings screen shows the stored event count, explains every field and can
-delete the local file. Skip and completion events are the inputs the
-recommender can use to distinguish rejection from satisfaction.
+`TelemetryInsights` reduces the log to completion/skip/early-skip rates,
+discovery rate, session count, active hours, top artists and songs, plus a
+bounded affinity for every Go Beyond facet. `TelemetryTaste` turns the same
+events into decayed song and artist scores used by the DPP quality term, the DJ
+buckets and the Go Beyond ranker. Nothing is uploaded, and no audio or device
+identifier is written. The settings screen shows the stored event count and
+the derived listening signal, and can delete the local file.
 
-## 7. Deployment View
+### 6.7 Go Beyond
 
-C4 deployment diagram: [`c4-model.md` §5](c4-model.md#5-deployment-view).
+`Search` has a second tab beside the search field. It presents country, genre,
+artist, period, colour and mood sections plus a custom builder.
 
-- **Phone**: one APK, arm64-v8a, debug `link.nzrs.radiostar.dev`, release
-  `link.nzrs.radiostar` (unsigned in this repository).
-- **Laptop**: Python 3.12 venv, `server/app.py`, port 8787 on loopback.
-  Cloudflare Tunnel or Tailscale in front; the public hostname never exposes
-  the port directly.
-- **Scrobblers**: internet HTTPS from the phone; no laptop involvement.
-- **No cloud dependency**: without the laptop, playback still works; new
-  playlists using text embeddings are skipped until it is reachable. Local
-  audio analysis and the DJ continue.
+- Country uses all ISO 3166 countries from `Locale.getISOCountries()`, with
+  English names, flag emoji, demonyms and fuzzy aliases. A searchable picker
+  lists every country; the section row shows personalized picks first.
+  Country journeys are origin-checked: `ArtistOriginResolver` batches artist
+  names against MusicBrainz, caches ISO country codes locally for 30 days and
+  drops artists known to come from a different country. Unknown origins stay
+  only as a fallback, so a playlist cannot silently become international.
+- Genres are a broad built-in catalog (about 80 entries) plus a search-or-type
+  picker with a `+` action for any custom genre. `GoBeyondResolver` maps typos
+  and aliases such as `hihop` or `shoegaz` to canonical values and sanitizes the
+  rest.
+- Period supports predefined decades and a free year range.
+- Colour and mood are atmospheres, not title keywords. Colour queries use
+  descriptors such as hazy, velvet, psychedelic and slow; the colour name is
+  never sent as a search keyword and tracks whose title or artist literally
+  contains it receive a penalty.
+- `GoBeyondFuzzy` and `GoBeyondResolver` accept typos, accents, aliases and
+  reordered words (`purpel`, `shoegaz`, `melancolic`, `Brasil`, `hihop`).
+  Stupid or unsafe input is sanitized or dropped.
 
-## 8. Cross-cutting Concepts
+Tapping a card:
 
-### 8.1 Privacy and security
+1. builds target-specific searches. Artist journeys search only that artist's
+   catalogue and then hard-filter every result to the artist (covers and
+   tributes are removed). Country journeys search the demonym and mine curated
+   country playlists; when enough curated tracks exist, they become the whole
+   candidate pool. This prevents a "Brazil" journey from becoming generic
+   international pop.
+2. optionally embeds the category prompt with `POST /embed/text` and the
+   candidates with `POST /embed` on the user's own server;
+3. ranks only inside that target pool with `GoBeyondRanker`: semantic
+   similarity, telemetry song/artist scores, recent and skipped memory, a small
+   unheard-artist bonus and an artist cap (disabled for artist journeys);
+4. writes the result as a normal local playlist with a stable `LP_RS_GO_*` id.
 
-- Audio buffers are ephemeral; never logged, written or uploaded.
-- Metadata sent to the embedding server is title/artist only; public transport
-  is HTTPS through Cloudflare Tunnel or Tailscale.
-- The embedding server requires a per-device Bearer token. The refresh token is
-  encrypted with Android Keystore and excluded from backup; access tokens stay
-  in memory. Pairing codes are single-use and expire.
-- Scrobbler tokens are device-local; redact them from logs and crash reports.
-- Release builds reject cleartext HTTP; debug builds allow it only for local
-  development.
-- No analytics SDK; advanced telemetry is local-only and opt-in. There is no
-  external upload path in this build.
+The landing view is personalized locally and cheaply. `GoBeyondPersonalize`
+combines telemetry gateway affinity, top/recent/imported artists and albums,
+active hours, skip rate and variety appetite to order every section and to
+produce a "Picked from your listening" row. It is fuzzy string matching and
+bounded arithmetic only: no network and no embedding call.
 
-### 8.2 Error handling
+Artwork is generated per card: flags for countries, artist photos from Room
+when present (initials or album art otherwise), abstract genre art, era rings
+with the decade label, literal colour palettes, and mood atmospheres. A title
+gradient keeps text readable over the reduced-opacity art. Cards use a fixed
+height so the Canvas artwork always has a measurable surface.
 
-- Generation failure leaves old playlists and old stamps.
-- Import failure leaves the checkpoint and retries with backoff.
-- Embedding server failure returns null; the playlist generation aborts
-  cleanly instead of writing partial lists.
-- Playback analysis failures are logged and never block audio.
+The MusicBrainz lookup sends only artist names, is cached, and runs only for a
+country journey. It is best-effort: a network failure keeps the search/playlist
+provenance and generation continues. The landing view uses cache-only origin
+hints, never a network request.
 
-### 8.3 Performance budgets
-
-| Operation | Budget / measured |
-| --- | --- |
-| CLAP embedding | p50 172 ms, p95 194 ms per 10 s window (A52s) |
-| Tempo/key | ~294 ms, once per track |
-| DPP | milliseconds for 30–160 candidates |
-| Text embedding | ~1.1 s cold/item, ~4 ms cached (laptop) |
-| Playlist refresh | background; daily/weekly only |
-
-### 8.4 i18n, accessibility, licensing
-
-- UI strings in English and Spanish; code/docs English.
-- DJ wheel has a non-radial segmented fallback; cards have content labels.
-- Every model/library credit is kept in the README/decisions; GPL-3.0 fork.
+Playback is a normal `ListQueue`; the generated playlist name carries the
+facets, and `MusicService` copies them into telemetry. Pull-to-refresh rebuilds
+the same journey from the saved selection.
 
 ## 9. Architecture Decisions
 
@@ -499,6 +544,8 @@ See `docs/decisions.md`:
 - D-18: 06:00 playlist day and imported-first mixes.
 - D-19: history-based Weekly/Monthly Most.
 - D-20: local advanced telemetry.
+- D-22: server-synced settings and reactions.
+- D-23: Go Beyond gateway playlists and telemetry-driven journey ranking.
 
 ## 10. Quality Requirements
 

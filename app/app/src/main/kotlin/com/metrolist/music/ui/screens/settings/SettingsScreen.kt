@@ -21,9 +21,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -37,8 +37,6 @@ import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.ReleaseNotesCard
 import com.metrolist.music.ui.utils.backToMain
-import com.metrolist.music.utils.Updater
-import androidx.compose.runtime.remember
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,247 +44,294 @@ fun SettingsScreen(
     navController: NavController,
     latestVersionName: String,
 ) {
-    val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val hasAndroidAuto = remember {
-        try {
-            context.packageManager.getPackageInfo(
-                "com.google.android.projection.gearhead", 0
-            )
-            true
-        } catch (e: Exception) {
-            false
+    val updateAvailable =
+        BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.BASE_VERSION_NAME
+    val hasAndroidAuto =
+        remember {
+            try {
+                context.packageManager.getPackageInfo(
+                    "com.google.android.projection.gearhead",
+                    0,
+                )
+                true
+            } catch (e: Exception) {
+                false
+            }
         }
-    }
 
     Column(
         Modifier
-            .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
+            .windowInsetsPadding(
+                LocalPlayerAwareWindowInsets.current.only(
+                    WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                ),
+            ).verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
     ) {
         Spacer(
             Modifier.windowInsetsPadding(
                 LocalPlayerAwareWindowInsets.current.only(
-                    WindowInsetsSides.Top
-                )
-            )
+                    WindowInsetsSides.Top,
+                ),
+            ),
         )
 
-        // User Interface Section
         Material3SettingsGroup(
-            title = stringResource(R.string.settings_section_ui),
-            items = listOf(
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.palette),
-                    title = { Text(stringResource(R.string.appearance)) },
-                    onClick = { navController.navigate("settings/appearance") }
-                )
-            )
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Player & Content Section (moved up and combined with content)
-        Material3SettingsGroup(
-            title = stringResource(R.string.settings_section_player_content),
-            items = listOf(
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.play),
-                    title = { Text(stringResource(R.string.player_and_audio)) },
-                    onClick = { navController.navigate("settings/player") }
-                ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.language),
-                    title = { Text(stringResource(R.string.content)) },
-                    onClick = { navController.navigate("settings/content") }
-                ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.translate),
-                    title = { Text(stringResource(R.string.ai_lyrics_translation)) },
-                    onClick = { navController.navigate("settings/ai") }
-                ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.radio),
-                    title = { Text(stringResource(R.string.radiostar_dj)) },
-                    onClick = { navController.navigate("settings/dj") }
-                ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.radio),
-                    title = { Text(stringResource(R.string.radiostar_engine)) },
-                    onClick = { navController.navigate("settings/radiostar") }
-                )
-            )
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Android Auto Section — only shown if Android Auto is installed
-        if (hasAndroidAuto) {
-            Material3SettingsGroup(
-                title = "Android Auto",
-                items = listOf(
+            title = stringResource(R.string.settings_section_radiostar),
+            items =
+                listOf(
                     Material3SettingsItem(
-                        icon = painterResource(R.drawable.ic_android_auto),
-                        title = { Text(stringResource(R.string.android_auto)) },
-                        onClick = { navController.navigate("settings/android_auto") }
+                        icon = painterResource(R.drawable.discover_tune),
+                        title = { Text(stringResource(R.string.radiostar_engine)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_recommendations))
+                        },
+                        onClick = { navController.navigate("settings/radiostar") },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.radio),
+                        title = { Text(stringResource(R.string.radiostar_dj)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_ai_dj))
+                        },
+                        onClick = { navController.navigate("settings/dj") },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.history),
+                        title = { Text(stringResource(R.string.radiostar_listening_history)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_listening_history))
+                        },
+                        onClick = { navController.navigate("settings/listening_history") },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.upload),
+                        title = { Text(stringResource(R.string.radiostar_scrobbling)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_scrobbling))
+                        },
+                        onClick = { navController.navigate("settings/scrobbling") },
+                    ),
+                ),
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.settings_section_intelligence),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.key_vertical),
+                        title = { Text(stringResource(R.string.ai_providers)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_ai_providers))
+                        },
+                        onClick = { navController.navigate("settings/ai/providers") },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.translate),
+                        title = { Text(stringResource(R.string.ai_lyrics_translation)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_ai_lyrics))
+                        },
+                        onClick = { navController.navigate("settings/ai") },
+                    ),
+                ),
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.settings_section_playback),
+            items =
+                buildList {
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.play),
+                            title = { Text(stringResource(R.string.player_and_audio)) },
+                            description = {
+                                Text(stringResource(R.string.settings_desc_player))
+                            },
+                            onClick = { navController.navigate("settings/player") },
+                        ),
                     )
-                )
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-        
-        // Privacy & Security Section
-        Material3SettingsGroup(
-            title = stringResource(R.string.settings_section_privacy),
-            items = listOf(
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.security),
-                    title = { Text(stringResource(R.string.privacy)) },
-                    onClick = { navController.navigate("settings/privacy") }
-                ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.radio),
-                    title = { Text(stringResource(R.string.radiostar_scrobbling)) },
-                    onClick = { navController.navigate("settings/scrobbling") }
-                )
-            )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.library_music),
+                            title = { Text(stringResource(R.string.content_and_language)) },
+                            description = {
+                                Text(stringResource(R.string.settings_desc_content))
+                            },
+                            onClick = { navController.navigate("settings/content") },
+                        ),
+                    )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.palette),
+                            title = { Text(stringResource(R.string.appearance)) },
+                            description = {
+                                Text(stringResource(R.string.settings_desc_appearance))
+                            },
+                            onClick = { navController.navigate("settings/appearance") },
+                        ),
+                    )
+                    if (hasAndroidAuto) {
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.ic_android_auto),
+                                title = { Text(stringResource(R.string.android_auto)) },
+                                description = {
+                                    Text(stringResource(R.string.settings_desc_android_auto))
+                                },
+                                onClick = { navController.navigate("settings/android_auto") },
+                            ),
+                        )
+                    }
+                },
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Storage & Data Section
         Material3SettingsGroup(
-            title = stringResource(R.string.settings_section_storage),
-            items = listOf(
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.storage),
-                    title = { Text(stringResource(R.string.storage)) },
-                    onClick = { navController.navigate("settings/storage") }
+            title = stringResource(R.string.settings_section_privacy_data),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.security),
+                        title = { Text(stringResource(R.string.privacy)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_privacy))
+                        },
+                        onClick = { navController.navigate("settings/privacy") },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.storage),
+                        title = { Text(stringResource(R.string.storage)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_storage))
+                        },
+                        onClick = { navController.navigate("settings/storage") },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.backup),
+                        title = { Text(stringResource(R.string.backup_restore)) },
+                        description = {
+                            Text(stringResource(R.string.settings_desc_backup))
+                        },
+                        onClick = { navController.navigate("settings/backup_restore") },
+                    ),
                 ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.restore),
-                    title = { Text(stringResource(R.string.backup_restore)) },
-                    onClick = { navController.navigate("settings/backup_restore") }
-                ),
-                Material3SettingsItem(
-                    icon = painterResource(R.drawable.history),
-                    title = { Text(stringResource(R.string.radiostar_listening_history)) },
-                    onClick = { navController.navigate("settings/listening_history") }
-                )
-            )
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // System & About Section
         Material3SettingsGroup(
             title = stringResource(R.string.settings_section_system),
-            items = buildList {
-                if (isAndroid12OrLater) {
-                    add(
-                        Material3SettingsItem(
-                            icon = painterResource(R.drawable.link),
-                            title = { Text(stringResource(R.string.default_links)) },
-                            onClick = {
-                                try {
-                                    val intent = Intent(
-                                        Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
-                                        "package:${context.packageName}".toUri()
-                                    )
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    when (e) {
-                                        is ActivityNotFoundException -> {
-                                            Toast.makeText(
-                                                context,
-                                                R.string.open_app_settings_error,
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
+            items =
+                buildList {
+                    if (isAndroid12OrLater) {
+                        add(
+                            Material3SettingsItem(
+                                icon = painterResource(R.drawable.link),
+                                title = { Text(stringResource(R.string.default_links)) },
+                                description = {
+                                    Text(stringResource(R.string.settings_desc_links))
+                                },
+                                onClick = {
+                                    try {
+                                        val intent =
+                                            Intent(
+                                                Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
+                                                "package:${context.packageName}".toUri(),
+                                            )
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        when (e) {
+                                            is ActivityNotFoundException -> {
+                                                Toast.makeText(
+                                                    context,
+                                                    R.string.open_app_settings_error,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
 
-                                        is SecurityException -> {
-                                            Toast.makeText(
-                                                context,
-                                                R.string.open_app_settings_error,
-                                                Toast.LENGTH_LONG
-                                            ).show()
-                                        }
+                                            is SecurityException -> {
+                                                Toast.makeText(
+                                                    context,
+                                                    R.string.open_app_settings_error,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
 
-                                        else -> {
-                                            Toast.makeText(
-                                                context,
-                                                R.string.open_app_settings_error,
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            else -> {
+                                                Toast.makeText(
+                                                    context,
+                                                    R.string.open_app_settings_error,
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
                                         }
                                     }
-                                }
-                            }
+                                },
+                            ),
                         )
-                    )
-                }
-                if (BuildConfig.UPDATER_AVAILABLE) {
-                    add(
-                        Material3SettingsItem(
-                            icon = painterResource(R.drawable.update),
-                            title = { Text(stringResource(R.string.updater)) },
-                            onClick = { navController.navigate("settings/updater") }
-                        )
-                    )
-                }
-                val showChangelog = com.metrolist.music.LocalChangelogState.current
-                add(
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.newspaper),
-                        title = { Text(stringResource(R.string.changelog)) },
-                        onClick = { showChangelog.value = true }
-                    )
-                )
-                add(
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.info),
-                        title = { Text(stringResource(R.string.about)) },
-                        onClick = { navController.navigate("settings/about") }
-                    )
-                )
-                if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.BASE_VERSION_NAME) {
-                    val releaseInfo = Updater.getCachedLatestRelease()
-                    val downloadUrl = releaseInfo?.let { Updater.getDownloadUrlForCurrentVariant(it) }
-
-                    if (downloadUrl != null) {
+                    }
+                    if (BuildConfig.UPDATER_AVAILABLE) {
                         add(
                             Material3SettingsItem(
                                 icon = painterResource(R.drawable.update),
-                                title = { 
-                                    Text(
-                                        text = stringResource(R.string.new_version_available),
-                                    )
-                                },
+                                title = { Text(stringResource(R.string.updater)) },
                                 description = {
                                     Text(
-                                        text = latestVersionName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        if (updateAvailable) {
+                                            stringResource(
+                                                R.string.settings_update_available,
+                                                latestVersionName,
+                                            )
+                                        } else {
+                                            stringResource(R.string.settings_desc_updater)
+                                        },
                                     )
                                 },
-                                showBadge = true,
-                                onClick = { uriHandler.openUri(downloadUrl) }
-                            )
+                                showBadge = updateAvailable,
+                                onClick = { navController.navigate("settings/updater") },
+                            ),
                         )
                     }
-                }
-            }
+                    val showChangelog = com.metrolist.music.LocalChangelogState.current
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.newspaper),
+                            title = { Text(stringResource(R.string.changelog)) },
+                            description = {
+                                Text(stringResource(R.string.settings_desc_changelog))
+                            },
+                            onClick = { showChangelog.value = true },
+                        ),
+                    )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.info),
+                            title = { Text(stringResource(R.string.about)) },
+                            description = {
+                                Text(stringResource(R.string.settings_desc_about))
+                            },
+                            onClick = { navController.navigate("settings/about") },
+                        ),
+                    )
+                },
         )
-    if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.BASE_VERSION_NAME) {
+
+        if (updateAvailable) {
             Spacer(modifier = Modifier.height(16.dp))
             ReleaseNotesCard()
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
     }
 
     TopAppBar(
@@ -294,13 +339,13 @@ fun SettingsScreen(
         navigationIcon = {
             IconButton(
                 onClick = navController::navigateUp,
-                onLongClick = navController::backToMain
+                onLongClick = navController::backToMain,
             ) {
                 Icon(
                     painterResource(R.drawable.arrow_back),
-                    contentDescription = null
+                    contentDescription = stringResource(R.string.dismiss),
                 )
             }
-        }
+        },
     )
 }

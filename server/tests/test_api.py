@@ -15,6 +15,9 @@ class FakeEmbedder:
     def embed(self, artist: str, title: str):
         return np.array([1.0, 0.0, 0.0], dtype=np.float32)
 
+    def embed_text(self, text: str):
+        return np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
 
 @pytest.fixture()
 def http_server(tmp_path):
@@ -231,3 +234,46 @@ def test_unknown_path_is_404(http_server):
     response, body = request(host, port, "GET", "/nope")
     assert response.status == 404
     assert body == {"error": "not found"}
+
+
+def test_embed_text_requires_bearer(http_server):
+    host, port, issued, _ = http_server
+    response, body = request(host, port, "POST", "/embed/text", {"texts": ["purple haze"]})
+    assert response.status == 401
+    assert body == {"error": "unauthorized"}
+
+    response, body = request(
+        host,
+        port,
+        "POST",
+        "/embed/text",
+        {"texts": ["purple haze", "melancholic"]},
+        token=issued.access_token,
+    )
+    assert response.status == 200
+    assert body["vectors"] == [[0.0, 1.0, 0.0], [0.0, 1.0, 0.0]]
+
+
+def test_embed_text_validates_and_limits(http_server):
+    host, port, issued, _ = http_server
+    response, body = request(
+        host,
+        port,
+        "POST",
+        "/embed/text",
+        {"texts": [""]},
+        token=issued.access_token,
+    )
+    assert response.status == 400
+    assert "texts[0]" in body["error"]
+
+    response, body = request(
+        host,
+        port,
+        "POST",
+        "/embed/text",
+        {"texts": ["x"] * 33},
+        token=issued.access_token,
+    )
+    assert response.status == 400
+    assert "too many" in body["error"]

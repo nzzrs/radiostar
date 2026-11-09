@@ -14,7 +14,13 @@ data class DjSessionUi(
     val active: Boolean = false,
     val speaking: Boolean = false,
     val persona: DjPersona = DjPersona.CHERRY,
-)
+) {
+    /** The DJ owns the queue order for the whole session, not just while speaking. */
+    val queueEditable: Boolean get() = !active
+
+    /** Shuffle and repeat would break the planned set, so they are hidden while the DJ is live. */
+    val transportControlsAvailable: Boolean get() = !active
+}
 
 /** UI state driven by the DJ announcer; no queue mutation by itself. */
 object DjSessionState {

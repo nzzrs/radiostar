@@ -42,6 +42,7 @@ class ServerAuthStore
             val linked: Boolean,
             val username: String?,
             val deviceName: String?,
+            val deviceId: String? = null,
         )
 
         private val mutex = Mutex()
@@ -63,6 +64,7 @@ class ServerAuthStore
                     linked = linked,
                     username = prefs[KEY_USERNAME].takeIf { linked },
                     deviceName = prefs[KEY_DEVICE_NAME].takeIf { linked },
+                    deviceId = prefs[KEY_DEVICE_ID].takeIf { linked },
                 )
             }
 

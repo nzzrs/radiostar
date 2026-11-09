@@ -530,8 +530,9 @@ test; the database rows, artist maps and generation path are verified.
 
 - The event log is local JSONL in the app's private storage. Nothing is sent to
   the laptop or any backend.
-- Events: play, pause, skip, seek and completion, with position/duration,
-  timestamp, process session, playlist and queue seed, plus song and artist.
+- Events: play, pause, skip, seek, completion, replay, like and dislike, with
+  position/duration, timestamp, process session, playlist, queue seed, song,
+  artist, album and the Go Beyond facets of a generated journey.
 - The settings screen discloses the fields, shows the count and deletes the
   file on request.
 - Telemetry never runs unless the user enables it; turning it off stops new
@@ -554,12 +555,81 @@ test; the database rows, artist maps and generation path are verified.
   per-IP rate limits, a daily item quota, a thread cap and a 15 s socket timeout.
 - The app offers both a one-time pairing code and username/password login.
   There is no public registration endpoint; accounts are created locally with
-  `python server/admin.py`.
+  `python -m server setup`.
 - Release builds reject cleartext HTTP. Debug builds keep a cleartext override
   for the laptop server. The auth DataStore is excluded from Android backup.
 - This stays one owner with several devices. The schema can hold more users,
   but open registration, email verification and a shared cache namespace are
   deliberately out of scope until a second user exists.
+
+## D-22 — Server-synced settings and reactions
+
+**Status:** implemented; server schema 2, client tests and server tests pass.
+
+- The RadioStar server account is the sync transport. `/sync/pull`,
+  `/sync/push`, `/sync/status` and `DELETE /sync` reuse the existing device
+  Bearer tokens; there is no second login.
+- One generic item table stores `config` and `reaction` rows with a monotonic
+  sequence. Writes are last-writer-wins on `(updated_at_ms, device_id)`;
+  losing rows return as conflicts and deletions are tombstones.
+- Config covers the app's DataStore preferences except device-local or
+  derived values (playback volume, alarm entries, import checkpoints,
+  generated profiles, the sync server URL itself). Secret names (tokens,
+  API keys, sessions, cookies) are encrypted on the phone with PBKDF2 +
+  AES/GCM and a user passphrase. Only ciphertext reaches the server; the
+  passphrase is protected by the Android Keystore.
+- Reactions are a JSONL log keyed by YouTube video id, or title/artist for
+  scrobbler-only tracks. This adds dislikes without a Room migration and keeps
+  `song.liked` as the UI source. The server holds the authoritative reaction;
+  local edits push immediately-ish and remote edits update `song.liked`.
+- Last.fm mirrors love/unlove; ListenBrainz and compatible servers use
+  love/hate feedback after resolving a recording MBID. Reads pull loved
+  tracks / feedback back into the local store. A dislike becomes unlove on
+  Last.fm because its API has no dislike.
+- Outbound listen submission has its own switch. Off means RadioStar sends no
+  scrobbles but still mirrors reactions and imports history, so an external
+  scrobbler can run in parallel.
+- Default server URL is `http://localhost:8787`; it is a placeholder the user
+  overrides. Default share-link and Listen Together URLs point at
+  `radiostarserver.nzrs.link` and are editable in Settings.
+
+## D-23 — Go Beyond gateway playlists
+
+**Status:** implemented; Kotlin unit tests and server tests pass.
+
+- Search has a second tab with country, genre, artist, period, colour and mood
+  sections plus a custom combination builder. Countries come from
+  `Locale.getISOCountries()` (flags, demonyms, aliases) and a searchable picker;
+  genres are a broad catalog plus a custom `+` entry; a predefined decade or a
+  free year range both describe the period.
+- Artist journeys hard-filter to the artist's own catalogue; country journeys
+  use the demonym and curated country playlists, then verify artist origin
+  through a batched, cached MusicBrainz lookup. Colour/mood are atmosphere
+  prompts: the colour word is not searched and literal colour titles are
+  penalized.
+- Country pickers use every ISO country with a flag; genre pickers combine a
+  broad catalog with a `+` custom entry. The landing view uses a local fuzzy
+  taste model (`GoBeyondPersonalize`) over telemetry, imports, active hours and
+  behaviour, never the network.
+- Card artwork is per-section: flags, artist photos or initials, abstract genre
+  art, era rings, colour palettes and mood atmospheres.
+- Typo tolerance and aliases go through `GoBeyondFuzzy` and
+  `GoBeyondResolver`; nonsense input is sanitized or dropped.
+- The landing view is ordered by `GoBeyondPersonalize`, a local fuzzy taste
+  model over telemetry, imports, active hours and behaviour. It never calls the
+  network.
+- A card searches YouTube Music, optionally embeds its semantic prompt and the
+  candidates on the user's own text tower, then ranks inside the constrained
+  target pool by prompt similarity, decayed song/artist telemetry, recent and
+  skipped memory, a small unheard-artist bonus and a hard per-artist cap.
+- The result is an ordinary local playlist with a stable `LP_RS_GO_*` id.
+  Pull-to-refresh rebuilds the saved selection instead of creating a copy.
+- Playlist names carry the facets (`Go Beyond · Brazil · Shoegaze`). The player
+  copies them into telemetry, so later cards can be ordered by real affinity
+  and the recommended card can choose a returning area, the most played artist
+  or a mood inferred from the most active listening hour.
+- This does not change playback behaviour: a journey starts only when the user
+  opens its playlist.
 
 ## Open
 - CLAP HTSAT-tiny checkpoint licence (HF weights are Apache-2.0; the Zenodo

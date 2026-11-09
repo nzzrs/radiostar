@@ -1,3 +1,25 @@
+# Developer scripts
+
+## Server bootstrap
+
+Create the server environment, install dependencies, create the owner account
+and optionally start the service:
+
+```sh
+./scripts/setup_server.sh
+./scripts/setup_server.sh --serve
+```
+
+Reuse an existing environment by pointing at its venv:
+
+```sh
+RADIOSTAR_VENV=/path/to/venv ./scripts/setup_server.sh
+```
+
+The script skips installation when `argon2`, `laion_clap`, `numpy` and `torch`
+already import. See [`../server/README.md`](../server/README.md) for the full
+command reference.
+
 # ListenBrainz CSV export
 
 Download a user's ListenBrainz listens as a CSV that RadioStar can import.
