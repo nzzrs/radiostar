@@ -29,17 +29,33 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarDjAiKey
+import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKey
+import com.metrolist.music.constants.RadioStarDjKnownKey
+import com.metrolist.music.constants.RadioStarDjLikelyKey
+import com.metrolist.music.constants.RadioStarDjPersonaKey
+import com.metrolist.music.recommend.DjConfig
+import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
+import com.metrolist.music.ui.screens.DjSettingsBody
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DjSettingsScreen(navController: NavController) {
     var enabled by rememberPreference(RadioStarDjKey, true)
+    var aiEnabled by rememberPreference(RadioStarDjAiKey, false)
+    var persona by rememberEnumPreference(RadioStarDjPersonaKey, DjPersona.CHERRY)
+    var known by rememberEnumPreference(RadioStarDjKnownKey, DjPresence.SOMETIMES)
+    var far by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
+    var likely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
+    val config = DjConfig(persona = persona, known = known, far = far, likely = likely)
 
     Column(
         Modifier
@@ -57,12 +73,13 @@ fun DjSettingsScreen(navController: NavController) {
         )
 
         Material3SettingsGroup(
-            title = stringResource(R.string.radiostar_dj),
+            title = stringResource(R.string.dj_section_status),
             items =
                 listOf(
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.radio),
-                        title = { Text(stringResource(R.string.radiostar_dj)) },
+                        title = { Text(stringResource(R.string.dj_enable)) },
+                        description = { Text(stringResource(R.string.dj_enable_desc)) },
                         trailingContent = {
                             Switch(checked = enabled, onCheckedChange = { enabled = it })
                         },
@@ -71,7 +88,22 @@ fun DjSettingsScreen(navController: NavController) {
                 ),
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
+
+        DjSettingsBody(
+            config = config,
+            aiEnabled = aiEnabled,
+            onAiChange = { aiEnabled = it },
+            onConfigChange = { updated ->
+                persona = updated.persona
+                known = updated.known
+                far = updated.far
+                likely = updated.likely
+            },
+            onOpenAiProviders = { navController.navigate("settings/ai/providers") },
+        )
+
+        Spacer(Modifier.height(24.dp))
     }
 
     TopAppBar(
@@ -83,7 +115,7 @@ fun DjSettingsScreen(navController: NavController) {
             ) {
                 Icon(
                     painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.back),
                 )
             }
         },

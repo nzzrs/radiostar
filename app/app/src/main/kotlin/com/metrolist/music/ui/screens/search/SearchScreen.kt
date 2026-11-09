@@ -340,6 +340,7 @@ fun SearchScreen(
                             onOpenPlaylist = { playlistId ->
                                 navController.navigate("local_playlist/$playlistId")
                             },
+                            onOpenTelemetry = { navController.navigate("settings/telemetry") },
                         )
                     }
 
