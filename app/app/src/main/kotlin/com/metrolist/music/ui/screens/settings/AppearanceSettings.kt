@@ -906,7 +906,7 @@ fun AppearanceSettings(
             .padding(horizontal = 16.dp),
     ) {
         Material3SettingsGroup(
-            title = stringResource(R.string.theme),
+            title = stringResource(R.string.appearance_display_theme),
             items =
                 buildList {
                     add(
@@ -962,7 +962,7 @@ fun AppearanceSettings(
                     if (!isUsingCustomColor) {
                         add(
                             Material3SettingsItem(
-                                icon = painterResource(R.drawable.palette),
+                                icon = painterResource(R.drawable.contrast),
                                 title = { Text(stringResource(R.string.enable_dynamic_theme)) },
                                 trailingContent = {
                                     Switch(
@@ -1010,7 +1010,7 @@ fun AppearanceSettings(
                     )
                     add(
                         Material3SettingsItem(
-                            icon = painterResource(R.drawable.palette),
+                            icon = painterResource(R.drawable.gradient),
                             title = { Text(stringResource(R.string.theme)) },
                             description = { Text(stringResource(R.string.theme_desc)) },
                             onClick = { navController.navigate("settings/appearance/theme") },

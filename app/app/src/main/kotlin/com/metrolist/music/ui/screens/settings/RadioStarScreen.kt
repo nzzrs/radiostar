@@ -191,11 +191,11 @@ fun RadioStarScreen(navController: NavController) {
         )
 
         Material3SettingsGroup(
-            title = stringResource(R.string.radiostar_engine),
+            title = stringResource(R.string.radiostar_connection),
             items =
                 listOf(
                     Material3SettingsItem(
-                        icon = painterResource(R.drawable.radio),
+                        icon = painterResource(R.drawable.cloud),
                         title = { Text(stringResource(R.string.radiostar_server)) },
                         description = {
                             Text(server.ifBlank { stringResource(R.string.radiostar_server_empty) })
@@ -212,15 +212,26 @@ fun RadioStarScreen(navController: NavController) {
                         description = { Text(accountDescription) },
                         onClick = { showAuthDialog = true },
                     ),
+                ),
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.radiostar_playlists),
+            items =
+                listOf(
                     Material3SettingsItem(
-                        icon = painterResource(R.drawable.sync),
+                        icon = painterResource(R.drawable.refresh),
                         title = { Text(stringResource(R.string.radiostar_refresh_now)) },
+                        description = { Text(stringResource(R.string.radiostar_refresh_now_desc)) },
+                        showChevron = false,
                         onClick = { RadioStarRefreshBus.request() },
                     ),
                 ),
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
 
         Material3SettingsGroup(
             title = stringResource(R.string.radiostar_sync),
@@ -285,9 +296,10 @@ fun RadioStarScreen(navController: NavController) {
                         },
                     ),
                     Material3SettingsItem(
-                        icon = painterResource(R.drawable.sync),
+                        icon = painterResource(R.drawable.upload),
                         title = { Text(stringResource(R.string.radiostar_sync_now)) },
                         description = { Text(if (syncBusy) "…" else lastSyncResult) },
+                        showChevron = false,
                         onClick = {
                             if (!syncBusy) {
                                 scope.launch {
@@ -325,7 +337,7 @@ fun RadioStarScreen(navController: NavController) {
                 ),
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
 
         Material3SettingsGroup(
             title = stringResource(R.string.radiostar_infra),
@@ -352,14 +364,14 @@ fun RadioStarScreen(navController: NavController) {
                 ),
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(28.dp),
             colors =
                 CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
@@ -370,14 +382,14 @@ fun RadioStarScreen(navController: NavController) {
                             Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                                .background(MaterialTheme.colorScheme.secondaryContainer),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             painterResource(R.drawable.palette),
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                     Spacer(Modifier.size(16.dp))
@@ -407,7 +419,7 @@ fun RadioStarScreen(navController: NavController) {
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
     }
 
     if (showServerDialog) {

@@ -2743,6 +2743,10 @@ fun HomeScreen(
                 showDjPanel = false
                 startDj(djConfig)
             },
+            onOpenAiProviders = {
+                showDjPanel = false
+                navController.navigate("settings/ai/providers")
+            },
         )
     }
 }

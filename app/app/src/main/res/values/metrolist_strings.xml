@@ -368,7 +368,60 @@
     <string name="settings_section_privacy">Privacy &amp; Security</string>
     <string name="settings_section_player_content">Player &amp; Content</string>
     <string name="settings_section_storage">Storage &amp; Data</string>
-    <string name="settings_section_system">System &amp; About</string>
+    <string name="settings_section_system">System</string>
+    <string name="settings_section_radiostar">RadioStar</string>
+    <string name="settings_section_intelligence">AI tools</string>
+    <string name="settings_section_playback">Playback &amp; appearance</string>
+    <string name="settings_section_privacy_data">Privacy &amp; data</string>
+
+    <!-- Settings descriptions -->
+    <string name="content_and_language">Content &amp; language</string>
+    <string name="settings_desc_recommendations">Daily and weekly playlists, server and account.</string>
+    <string name="settings_desc_ai_dj">Sessions, voice and spoken links.</string>
+    <string name="settings_desc_listening_history">Import listens and choose how they sync.</string>
+    <string name="settings_desc_scrobbling">Choose where new listens are sent.</string>
+    <string name="settings_desc_ai_providers">Provider, endpoint and model.</string>
+    <string name="settings_desc_ai_lyrics">Translate lyrics with your AI provider.</string>
+    <string name="settings_desc_player">Playback, audio and equalizer.</string>
+    <string name="settings_desc_content">Language, regions and app content.</string>
+    <string name="settings_desc_appearance">Theme, layout and player design.</string>
+    <string name="settings_desc_android_auto">Play and browse from the car.</string>
+    <string name="settings_desc_privacy">Telemetry, permissions and data controls.</string>
+    <string name="settings_desc_storage">Downloads, cache and library size.</string>
+    <string name="settings_desc_backup">Export or restore library and settings.</string>
+    <string name="settings_desc_links">Choose which links open in RadioStar.</string>
+    <string name="settings_desc_updater">Check for and install updates.</string>
+    <string name="settings_update_available">Version %1$s is available.</string>
+    <string name="settings_desc_changelog">See what changed in each version.</string>
+    <string name="settings_desc_about">Credits, licences and app information.</string>
+    <string name="appearance_display_theme">Display &amp; theme</string>
+
+    <!-- Go Beyond redesign -->
+    <string name="go_beyond_insights">Your listening</string>
+    <string name="go_beyond_intro">Pick a country, sound, artist, period, colour or mood. RadioStar starts from music you already enjoy.</string>
+    <string name="go_beyond_telemetry_off_body">Enable telemetry to tune journeys to your skips.</string>
+    <string name="go_beyond_telemetry_on_empty">Telemetry is on. Journey metrics appear after a few plays.</string>
+    <string name="go_beyond_telemetry_off_title">Tune your journeys</string>
+    <string name="go_beyond_loading">Preparing journeys…</string>
+    <string name="go_beyond_year_range_invalid">End year must be after start year.</string>
+    <string name="go_beyond_builder_place">Place &amp; sound</string>
+    <string name="go_beyond_builder_time">Time</string>
+    <string name="go_beyond_builder_vibe">Vibe</string>
+    <string name="go_beyond_no_results">No matches. Try another spelling.</string>
+
+    <!-- DJ settings -->
+    <string name="dj_section_status">Status</string>
+    <string name="dj_enable">Enable DJ</string>
+    <string name="dj_enable_desc">Show the DJ card on Home and allow sessions.</string>
+    <string name="dj_section_mix">Music mix</string>
+    <string name="dj_mix_desc">Choose how far the DJ may travel from your usual listening.</string>
+    <string name="dj_mix_known_desc">Familiar favourites and safe anchors.</string>
+    <string name="dj_mix_likely_desc">Close to what you already play.</string>
+    <string name="dj_mix_far_desc">Deliberate detours outside your usual taste.</string>
+    <string name="dj_section_voice">Voice &amp; AI</string>
+    <string name="dj_ai_desc">Spoken links between tracks use your AI provider.</string>
+    <string name="dj_ai_provider">AI provider</string>
+    <string name="dj_ai_provider_desc">Choose the provider and model for commentary.</string>
 
     <!-- Updater -->
     <string name="updater">Updater</string>
@@ -1038,9 +1091,9 @@
     <string name="radiostar_auth_set_server">Set the embedding server URL first.</string>
     <string name="radiostar_dislike">Dislike</string>
     <string name="radiostar_disliked">Disliked</string>
-    <string name="radiostar_sync">Sync</string>
-    <string name="radiostar_sync_enable">Sync settings and reactions</string>
-    <string name="radiostar_sync_enable_desc">Uses the server account. Likes and dislikes stay authoritative on this server.</string>
+    <string name="radiostar_sync">Device sync</string>
+    <string name="radiostar_sync_enable">Sync across devices</string>
+    <string name="radiostar_sync_enable_desc">Uses the server account for settings and reactions.</string>
     <string name="radiostar_sync_passphrase">Encryption passphrase</string>
     <string name="radiostar_sync_passphrase_set">Set. Secrets are encrypted on this device before upload.</string>
     <string name="radiostar_sync_passphrase_missing">Not set. Tokens and API keys are not synced.</string>
@@ -1055,7 +1108,8 @@
     <string name="radiostar_lastfm_unlove_title">Last.fm sync limit</string>
     <string name="radiostar_scrobble_outbound">Submit listens</string>
     <string name="radiostar_scrobble_outbound_desc">Off stops RadioStar from scrobbling. Likes, disliked tracks and history import still work, so another app can scrobble in parallel.</string>
-    <string name="radiostar_infra">Metrolist-hosted entry points</string>
+    <string name="radiostar_infra">Advanced</string>
+    <string name="radiostar_connection">Connection</string>
     <string name="radiostar_share_base">Share link base</string>
     <string name="radiostar_listen_together_server">Listen Together server</string>
     <string name="radiostar_infra_hint">Point these at your own deployment instead of the upstream Metrolist servers.</string>
