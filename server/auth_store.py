@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """SQLite persistence for RadioStar accounts, devices and tokens.
 
 The store is intentionally small: one SQLite file, one connection guarded by a

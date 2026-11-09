@@ -15,11 +15,14 @@ services:
       RADIOSTAR_AUTH_MODE: required
       RADIOSTAR_HOST: 127.0.0.1
       RADIOSTAR_DB_PATH: /app/server/data/auth.sqlite
+      RADIOSTAR_CACHE_PATH: /app/spike/clap/out/text_cache.sqlite
+      RADIOSTAR_CLAP_CHECKPOINT: /models/630k-audioset-best.pt
       RADIOSTAR_TRUST_PROXY: cloudflare
     volumes:
       # Reuse the checkpoint already downloaded by the project venv instead of
-      # downloading 1.8 GB again inside the image.
-      - /tmp/opencode/clap-venv/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt:/usr/local/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt:ro
+      # downloading 1.8 GB again inside the image. Override RADIOSTAR_CHECKPOINT
+      # when the file lives elsewhere.
+      - ${RADIOSTAR_CHECKPOINT:-/tmp/opencode/clap-venv/lib/python3.12/site-packages/laion_clap/630k-audioset-best.pt}:/models/630k-audioset-best.pt:ro
       - ../spike/clap/out:/app/spike/clap/out
       - ../server/data:/app/server/data
     security_opt:
