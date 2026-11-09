@@ -555,7 +555,7 @@ test; the database rows, artist maps and generation path are verified.
   per-IP rate limits, a daily item quota, a thread cap and a 15 s socket timeout.
 - The app offers both a one-time pairing code and username/password login.
   There is no public registration endpoint; accounts are created locally with
-  `python server/admin.py`.
+  `python -m server setup`.
 - Release builds reject cleartext HTTP. Debug builds keep a cleartext override
   for the laptop server. The auth DataStore is excluded from Android backup.
 - This stays one owner with several devices. The schema can hold more users,

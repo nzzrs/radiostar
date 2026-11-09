@@ -100,7 +100,7 @@ flowchart TB
     end
 
     subgraph Laptop["Laptop (optional compute)"]
-        SRV["Embedding server<br/>server/app.py :8787<br/>device tokens"]
+        SRV["Embedding server<br/>python -m server :8787<br/>device tokens"]
         CACHE[("SQLite embedding cache")]
     end
 
@@ -515,7 +515,7 @@ flowchart TB
     end
 
     subgraph Laptop["Laptop (optional)"]
-        SRV["server/app.py<br/>127.0.0.1:8787"]
+        SRV["python -m server<br/>127.0.0.1:8787"]
         CACHE[("SQLite embedding cache")]
     end
 

@@ -167,7 +167,7 @@ app/
 ├── db/            Room entities/DAOs (songs, events, playlists)
 ├── lastfm/        Last.fm Web API client
 ├── recommend/     ScrobblerImporter/Sync, ScrobbleSink, TelemetryStore
-server/            Python text tower (/health, /auth/*, /embed, SQLite auth/cache)
+server/            Python text tower and sync API (/health, /auth/*, /embed, /sync)
 scripts/           ListenBrainz CSV export tool
 spike/             archived research evidence
 ```
@@ -225,16 +225,34 @@ decoded PCM → TapAudioProcessor → ring buffer → 10 s window
 - Android Keystore:
   - AES/GCM key material for the DJ API key (`SecureKeyStore`).
 
-### 5.5 External text tower (`server/`)
+### 5.5 External text tower and sync API (`server/`)
 
-- Loads CLAP text tower once (~20 s).
+- Loads the CLAP text tower once (~20 s).
 - `GET /health` → `{"ok": true}`.
 - `POST /embed` → 512-d unit vectors, SQLite cache, one lock around the model.
 - `POST /embed/text` → 512-d vectors for free-text prompts (colour and mood
   cards), cached in the same SQLite table.
+- `/auth/*`, `/sync/*` → device tokens, pairing codes, settings and reaction
+  sync against the same SQLite database.
 - Authenticated with per-device opaque tokens; accounts and devices in
   `server/data/auth.sqlite`, Argon2id passwords, one-time pairing codes.
 - Binds `127.0.0.1:8787` and expects Cloudflare Tunnel or another HTTPS proxy.
+- Entry point: `python -m server` with `setup`, `serve`, `doctor` and account
+  commands. `server/app.py` and `server/admin.py` remain compatibility entries.
+
+Module layout:
+
+```text
+server/
+├── cli.py             setup, serve, doctor and account commands
+├── config.py          validated settings from environment and flags
+├── context.py         shared application state
+├── api/               auth, embed, sync and validation routes
+├── http/              request handler, route table and bounded server
+├── auth.py            tokens, pairing, passwords and rate limits
+├── auth_store.py      SQLite persistence
+└── text_embedder.py   CLAP text tower and embedding cache
+```
 
 ## 6. Runtime View
 
