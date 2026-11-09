@@ -112,6 +112,7 @@ import com.metrolist.music.extensions.move
 import com.metrolist.music.extensions.toggleRepeatMode
 import com.metrolist.music.listentogether.RoomRole
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.ui.component.ActionPromptDialog
 import com.metrolist.music.ui.component.BottomSheet
 import com.metrolist.music.ui.component.BottomSheetState
@@ -175,6 +176,9 @@ fun Queue(
     val playerConnection = LocalPlayerConnection.current ?: return
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsStateWithLifecycle()
     val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
+    val djSession by DjSessionState.state.collectAsStateWithLifecycle()
+    val queueEditable = djSession.queueEditable
+    val transportControlsAvailable = djSession.transportControlsAvailable
 
     val currentWindowIndex by playerConnection.currentWindowIndex.collectAsStateWithLifecycle()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
@@ -331,21 +335,23 @@ fun Queue(
                     )
 
                     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
-                    PlayerQueueButton(
-                        icon = R.drawable.shuffle,
-                        onClick = {
-                            playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled
-                        },
-                        isActive = shuffleModeEnabled,
-                        enabled = !isListenTogetherGuest,
-                        shape = middleShape,
-                        modifier = Modifier.size(buttonSize),
-                        textButtonColor = textButtonColor,
-                        iconButtonColor = iconButtonColor,
-                        iconSize = iconSize,
-                        textBackgroundColor = TextBackgroundColor,
-                        playerBackground = playerBackground,
-                    )
+                    if (transportControlsAvailable) {
+                        PlayerQueueButton(
+                            icon = R.drawable.shuffle,
+                            onClick = {
+                                playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled
+                            },
+                            isActive = shuffleModeEnabled,
+                            enabled = !isListenTogetherGuest,
+                            shape = middleShape,
+                            modifier = Modifier.size(buttonSize),
+                            textButtonColor = textButtonColor,
+                            iconButtonColor = iconButtonColor,
+                            iconSize = iconSize,
+                            textBackgroundColor = TextBackgroundColor,
+                            playerBackground = playerBackground,
+                        )
+                    }
 
                     PlayerQueueButton(
                         icon = R.drawable.lyrics,
@@ -360,26 +366,28 @@ fun Queue(
                         playerBackground = playerBackground,
                     )
 
-                    PlayerQueueButton(
-                        icon =
-                            when (repeatMode) {
-                                Player.REPEAT_MODE_ALL -> R.drawable.repeat
-                                Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
-                                else -> R.drawable.repeat
+                    if (transportControlsAvailable) {
+                        PlayerQueueButton(
+                            icon =
+                                when (repeatMode) {
+                                    Player.REPEAT_MODE_ALL -> R.drawable.repeat
+                                    Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
+                                    else -> R.drawable.repeat
+                                },
+                            onClick = {
+                                playerConnection.player.toggleRepeatMode()
                             },
-                        onClick = {
-                            playerConnection.player.toggleRepeatMode()
-                        },
-                        isActive = repeatMode != Player.REPEAT_MODE_OFF,
-                        enabled = !isListenTogetherGuest,
-                        shape = repeatShape,
-                        modifier = Modifier.size(buttonSize),
-                        textButtonColor = textButtonColor,
-                        iconButtonColor = iconButtonColor,
-                        iconSize = iconSize,
-                        textBackgroundColor = TextBackgroundColor,
-                        playerBackground = playerBackground,
-                    )
+                            isActive = repeatMode != Player.REPEAT_MODE_OFF,
+                            enabled = !isListenTogetherGuest,
+                            shape = repeatShape,
+                            modifier = Modifier.size(buttonSize),
+                            textButtonColor = textButtonColor,
+                            iconButtonColor = iconButtonColor,
+                            iconSize = iconSize,
+                            textBackgroundColor = TextBackgroundColor,
+                            playerBackground = playerBackground,
+                        )
+                    }
 
                     Spacer(modifier = Modifier.weight(1f))
 
@@ -845,7 +853,7 @@ fun Queue(
                                                 onCheckedChange = onCheckedChange,
                                             )
                                         } else {
-                                            if (!isListenTogetherGuest) {
+                                            if (!isListenTogetherGuest && queueEditable) {
                                                 IconButton(
                                                     onClick = {
                                                         menuState.show {
@@ -873,7 +881,7 @@ fun Queue(
                                                     )
                                                 }
                                             }
-                                            if (!locked && !isListenTogetherGuest) {
+                                            if (!locked && !isListenTogetherGuest && queueEditable) {
                                                 IconButton(
                                                     onClick = { },
                                                     modifier = Modifier.draggableHandle(),
@@ -922,7 +930,7 @@ fun Queue(
                                                     }
                                                 },
                                                 onLongClick = {
-                                                    if (!inSelectMode) {
+                                                    if (!inSelectMode && queueEditable) {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         inSelectMode = true
                                                         onCheckedChange(true)
@@ -933,7 +941,7 @@ fun Queue(
                             }
                         }
 
-                        if (locked) {
+                        if (locked || isListenTogetherGuest || !queueEditable) {
                             content()
                         } else {
                             SwipeToDismissBox(
@@ -946,7 +954,7 @@ fun Queue(
                     }
                 }
 
-                if (automix.isNotEmpty()) {
+                if (automix.isNotEmpty() && queueEditable) {
                     item(key = "automix_divider") {
                         HorizontalDivider(
                             modifier =
@@ -1066,7 +1074,7 @@ fun Queue(
                 )
 
                 AnimatedVisibility(
-                    visible = !inSelectMode,
+                    visible = !inSelectMode && queueEditable,
                     enter = fadeIn() + slideInVertically { it },
                     exit = fadeOut() + slideOutVertically { it },
                 ) {
@@ -1204,28 +1212,30 @@ fun Queue(
                             .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
                     ).padding(12.dp),
         ) {
-            IconButton(
-                enabled = !isListenTogetherGuest,
-                modifier = Modifier.align(Alignment.CenterStart),
-                onClick = {
-                    coroutineScope
-                        .launch {
-                            lazyListState.animateScrollToItem(
-                                if (playerConnection.player.shuffleModeEnabled) playerConnection.player.currentMediaItemIndex else 0,
-                            )
-                        }.invokeOnCompletion {
-                            playerConnection.player.shuffleModeEnabled =
-                                !playerConnection.player.shuffleModeEnabled
-                        }
-                },
-            ) {
-                val baseAlpha = if (shuffleModeEnabled) 1f else 0.5f
-                val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
-                Icon(
-                    painter = painterResource(R.drawable.shuffle),
-                    contentDescription = null,
-                    modifier = Modifier.alpha(finalAlpha),
-                )
+            if (transportControlsAvailable) {
+                IconButton(
+                    enabled = !isListenTogetherGuest,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    onClick = {
+                        coroutineScope
+                            .launch {
+                                lazyListState.animateScrollToItem(
+                                    if (playerConnection.player.shuffleModeEnabled) playerConnection.player.currentMediaItemIndex else 0,
+                                )
+                            }.invokeOnCompletion {
+                                playerConnection.player.shuffleModeEnabled =
+                                    !playerConnection.player.shuffleModeEnabled
+                            }
+                    },
+                ) {
+                    val baseAlpha = if (shuffleModeEnabled) 1f else 0.5f
+                    val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
+                    Icon(
+                        painter = painterResource(R.drawable.shuffle),
+                        contentDescription = null,
+                        modifier = Modifier.alpha(finalAlpha),
+                    )
+                }
             }
 
             Icon(
@@ -1234,25 +1244,27 @@ fun Queue(
                 modifier = Modifier.align(Alignment.Center),
             )
 
-            IconButton(
-                enabled = !isListenTogetherGuest,
-                modifier = Modifier.align(Alignment.CenterEnd),
-                onClick = playerConnection.player::toggleRepeatMode,
-            ) {
-                val baseAlpha = if (repeatMode == Player.REPEAT_MODE_OFF) 0.5f else 1f
-                val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
-                Icon(
-                    painter =
-                        painterResource(
-                            when (repeatMode) {
-                                Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL -> R.drawable.repeat
-                                Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
-                                else -> throw IllegalStateException()
-                            },
-                        ),
-                    contentDescription = null,
-                    modifier = Modifier.alpha(finalAlpha),
-                )
+            if (transportControlsAvailable) {
+                IconButton(
+                    enabled = !isListenTogetherGuest,
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    onClick = playerConnection.player::toggleRepeatMode,
+                ) {
+                    val baseAlpha = if (repeatMode == Player.REPEAT_MODE_OFF) 0.5f else 1f
+                    val finalAlpha = if (!isListenTogetherGuest) baseAlpha else 0.3f
+                    Icon(
+                        painter =
+                            painterResource(
+                                when (repeatMode) {
+                                    Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL -> R.drawable.repeat
+                                    Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
+                                    else -> throw IllegalStateException()
+                                },
+                            ),
+                        contentDescription = null,
+                        modifier = Modifier.alpha(finalAlpha),
+                    )
+                }
             }
         }
 

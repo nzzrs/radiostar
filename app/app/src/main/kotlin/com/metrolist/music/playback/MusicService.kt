@@ -468,6 +468,9 @@ class MusicService :
     private val sessionState = SessionState()
     private val trackProfiles = java.util.concurrent.ConcurrentHashMap<String, AudioProfile>()
     @Volatile private var radioStarDj = false
+
+    /** True while a DJ session owns the queue and playback order. */
+    val isDjSessionActive: Boolean get() = radioStarDj
     @Volatile private var aiDjEnabled = true
     @Volatile private var djSessionId = 0
     @Volatile private var djAiEnabled = false
@@ -1674,62 +1677,76 @@ class MusicService :
 
     private fun updateNotification(isLiked: Boolean? = currentSong.value?.song?.let { if (it.isEpisode) it.inLibrary != null else it.liked }) {
         mediaSession?.setCustomLayout(
-            listOf(
-                CommandButton
-                    .Builder()
-                    .setDisplayName(getString(if (player.shuffleModeEnabled) R.string.action_shuffle_off else R.string.action_shuffle_on))
-                    .setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
-                    .setSessionCommand(CommandToggleShuffle)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(
-                        getString(
-                            if (isLiked == true) {
-                                R.string.action_remove_like
-                            } else {
-                                R.string.action_like
-                            },
-                        ),
-                    ).setIconResId(if (isLiked == true) R.drawable.ic_heart else R.drawable.ic_heart_outline)
-                    .setSessionCommand(CommandToggleLike)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(
-                        getString(
-                            when (player.repeatMode) {
-                                REPEAT_MODE_OFF -> R.string.repeat_mode_off
-                                REPEAT_MODE_ONE -> R.string.repeat_mode_one
-                                REPEAT_MODE_ALL -> R.string.repeat_mode_all
-                                else -> throw IllegalStateException()
-                            },
-                        ),
-                    ).setIconResId(
-                        when (player.repeatMode) {
-                            REPEAT_MODE_OFF -> R.drawable.repeat
-                            REPEAT_MODE_ONE -> R.drawable.repeat_one_on
-                            REPEAT_MODE_ALL -> R.drawable.repeat_on
-                            else -> throw IllegalStateException()
-                        },
-                    ).setSessionCommand(CommandToggleRepeatMode)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(getString(R.string.start_radio))
-                    .setIconResId(R.drawable.radio)
-                    .setSessionCommand(CommandToggleStartRadio)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
-                CommandButton
-                    .Builder()
-                    .setDisplayName(getString(R.string.android_auto_target_playlist))
-                    .setIconResId(R.drawable.playlist_add)
-                    .setSessionCommand(CommandAddToTargetPlaylist)
-                    .setEnabled(currentSong.value != null)
-                    .build(),
-            ),
+            buildList {
+                if (!radioStarDj) {
+                    add(
+                        CommandButton
+                            .Builder()
+                            .setDisplayName(getString(if (player.shuffleModeEnabled) R.string.action_shuffle_off else R.string.action_shuffle_on))
+                            .setIconResId(if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle)
+                            .setSessionCommand(CommandToggleShuffle)
+                            .build(),
+                    )
+                }
+                add(
+                    CommandButton
+                        .Builder()
+                        .setDisplayName(
+                            getString(
+                                if (isLiked == true) {
+                                    R.string.action_remove_like
+                                } else {
+                                    R.string.action_like
+                                },
+                            ),
+                        ).setIconResId(if (isLiked == true) R.drawable.ic_heart else R.drawable.ic_heart_outline)
+                        .setSessionCommand(CommandToggleLike)
+                        .setEnabled(currentSong.value != null)
+                        .build(),
+                )
+                if (!radioStarDj) {
+                    add(
+                        CommandButton
+                            .Builder()
+                            .setDisplayName(
+                                getString(
+                                    when (player.repeatMode) {
+                                        REPEAT_MODE_OFF -> R.string.repeat_mode_off
+                                        REPEAT_MODE_ONE -> R.string.repeat_mode_one
+                                        REPEAT_MODE_ALL -> R.string.repeat_mode_all
+                                        else -> throw IllegalStateException()
+                                    },
+                                ),
+                            ).setIconResId(
+                                when (player.repeatMode) {
+                                    REPEAT_MODE_OFF -> R.drawable.repeat
+                                    REPEAT_MODE_ONE -> R.drawable.repeat_one_on
+                                    REPEAT_MODE_ALL -> R.drawable.repeat_on
+                                    else -> throw IllegalStateException()
+                                },
+                            ).setSessionCommand(CommandToggleRepeatMode)
+                            .build(),
+                    )
+                }
+                add(
+                    CommandButton
+                        .Builder()
+                        .setDisplayName(getString(R.string.start_radio))
+                        .setIconResId(R.drawable.radio)
+                        .setSessionCommand(CommandToggleStartRadio)
+                        .setEnabled(currentSong.value != null)
+                        .build(),
+                )
+                add(
+                    CommandButton
+                        .Builder()
+                        .setDisplayName(getString(R.string.android_auto_target_playlist))
+                        .setIconResId(R.drawable.playlist_add)
+                        .setSessionCommand(CommandAddToTargetPlaylist)
+                        .setEnabled(currentSong.value != null)
+                        .build(),
+                )
+            },
         )
     }
 
@@ -2937,6 +2954,14 @@ class MusicService :
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+        if (radioStarDj) {
+            if (shuffleModeEnabled) {
+                player.shuffleModeEnabled = false
+            } else {
+                updateNotification()
+            }
+            return
+        }
         updateNotification()
         if (shuffleModeEnabled) {
             if (player.mediaItemCount == 0) return
@@ -2962,6 +2987,14 @@ class MusicService :
     }
 
     override fun onRepeatModeChanged(repeatMode: Int) {
+        if (radioStarDj) {
+            if (repeatMode != REPEAT_MODE_OFF) {
+                player.repeatMode = REPEAT_MODE_OFF
+            } else {
+                updateNotification()
+            }
+            return
+        }
         updateNotification()
         scope.launch {
             safeDataStoreEdit { settings ->
@@ -4245,6 +4278,10 @@ class MusicService :
                 originalQueueSize = items.size
                 radioStarDj = true
                 djPersona = persona
+                // The DJ owns the set order: shuffle and repeat would break it.
+                player.shuffleModeEnabled = false
+                player.repeatMode = REPEAT_MODE_OFF
+                updateNotification()
                 announcedPair = null
                 djBias = TelemetryBias.EMPTY
                 djLastSpeechIndex = -1
@@ -4336,6 +4373,7 @@ class MusicService :
             if (!isCrossfading) player.volume = calculateEffectiveVolume()
         }
         DjSessionState.idle()
+        updateNotification()
         Timber.tag("RadioStarDj").i("end session")
     }
 
