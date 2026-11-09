@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Accounts, device tokens, pairing codes and request limits.
 
 Access tokens are opaque and short lived. Refresh tokens rotate and are stored
@@ -49,6 +48,10 @@ class InvalidCredentials(AuthError):
 
 class InvalidPairingCode(AuthError):
     """Expired, used or unknown pairing code."""
+
+
+class Unauthorized(AuthError):
+    """Missing or invalid bearer token."""
 
 
 class PasswordPolicyError(AuthError):
@@ -103,7 +106,9 @@ def normalize_pairing_code(code: str) -> str:
 
 def hash_password(password: str) -> str:
     if len(password) < MIN_PASSWORD_LENGTH:
-        raise PasswordPolicyError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+        raise PasswordPolicyError(
+            f"password must be at least {MIN_PASSWORD_LENGTH} characters"
+        )
     with _PASSWORD_SLOTS:
         return _PASSWORD_HASHER.hash(password)
 
@@ -143,8 +148,12 @@ class TokenService:
         if not verify_password(password, user["password_hash"]):
             raise InvalidCredentials("invalid credentials")
 
-        device_id = self._store.create_device(user["id"], _clean_device_name(device_name))
-        return self._issue(user["id"], user["username"], device_id, _clean_device_name(device_name))
+        device_id = self._store.create_device(
+            user["id"], _clean_device_name(device_name)
+        )
+        return self._issue(
+            user["id"], user["username"], device_id, _clean_device_name(device_name)
+        )
 
     def pair(self, code: str, device_name: str) -> IssuedTokens:
         normalized = normalize_pairing_code(code)
@@ -165,7 +174,9 @@ class TokenService:
     def create_pairing_code(self, user_id: str) -> tuple[str, int]:
         code = new_pairing_code()
         expires_at = int(time.time()) + PAIRING_TTL_SECONDS
-        self._store.add_pairing_code(hash_token(normalize_pairing_code(code)), user_id, expires_at)
+        self._store.add_pairing_code(
+            hash_token(normalize_pairing_code(code)), user_id, expires_at
+        )
         return code, expires_at
 
     # -- token lifecycle ----------------------------------------------
@@ -182,7 +193,9 @@ class TokenService:
         access_token = new_token()
         refresh_token = new_token()
         family = family_id or uuid.uuid4().hex
-        self._store.add_access_token(hash_token(access_token), device_id, now + ACCESS_TTL_SECONDS)
+        self._store.add_access_token(
+            hash_token(access_token), device_id, now + ACCESS_TTL_SECONDS
+        )
         self._store.add_refresh_token(
             hash_token(refresh_token),
             device_id,
@@ -271,7 +284,9 @@ class TokenService:
                 if issued.device_id == device_id:
                     self._refresh_cache.pop(key, None)
 
-    def list_devices(self, user_id: str, current_device_id: str) -> list[dict[str, Any]]:
+    def list_devices(
+        self, user_id: str, current_device_id: str
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "id": row["id"],

@@ -23,8 +23,13 @@ from pathlib import Path
 
 import numpy as np
 
+try:  # package import and direct script execution both work
+    from .config import DEFAULT_CACHE_PATH
+except ImportError:  # pragma: no cover - script execution path
+    from config import DEFAULT_CACHE_PATH  # type: ignore
+
 DEFAULT_CHECKPOINT: Path | None = None
-CACHE_DB = Path("spike/clap/out/text_cache.sqlite")
+CACHE_DB = DEFAULT_CACHE_PATH
 
 PROMPTS = (
     "{artist} - {title}",
@@ -35,7 +40,11 @@ PROMPTS = (
 
 
 class TextEmbedder:
-    def __init__(self, checkpoint: Path | None = DEFAULT_CHECKPOINT) -> None:
+    def __init__(
+        self,
+        checkpoint: Path | None = DEFAULT_CHECKPOINT,
+        cache_path: Path | str | None = None,
+    ) -> None:
         import laion_clap
 
         if checkpoint is not None and not checkpoint.exists():
@@ -44,14 +53,18 @@ class TextEmbedder:
         self._module.load_ckpt(ckpt=str(checkpoint) if checkpoint is not None else None)
         self._module.eval()
 
-        CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_path = Path(cache_path) if cache_path is not None else CACHE_DB
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         # The HTTP server serializes calls with one lock but handles requests on
         # worker threads, so the connection must accept use from any thread.
-        self._db = sqlite3.connect(CACHE_DB, check_same_thread=False)
+        self._db = sqlite3.connect(self.cache_path, check_same_thread=False)
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS vectors (key TEXT PRIMARY KEY, vector BLOB NOT NULL)"
         )
         self._db.commit()
+
+    def close(self) -> None:
+        self._db.close()
 
     @staticmethod
     def key(artist: str, title: str) -> str:
@@ -65,7 +78,9 @@ class TextEmbedder:
 
     def embed(self, artist: str, title: str) -> np.ndarray:
         cache_key = self.key(artist, title)
-        row = self._db.execute("SELECT vector FROM vectors WHERE key = ?", (cache_key,)).fetchone()
+        row = self._db.execute(
+            "SELECT vector FROM vectors WHERE key = ?", (cache_key,)
+        ).fetchone()
         if row is not None:
             return np.frombuffer(row[0], dtype=np.float32)
 
@@ -83,7 +98,9 @@ class TextEmbedder:
     def embed_text(self, text: str) -> np.ndarray:
         """Embed a free-text prompt in the same CLAP space as track metadata."""
         cache_key = self.text_key(text)
-        row = self._db.execute("SELECT vector FROM vectors WHERE key = ?", (cache_key,)).fetchone()
+        row = self._db.execute(
+            "SELECT vector FROM vectors WHERE key = ?", (cache_key,)
+        ).fetchone()
         if row is not None:
             return np.frombuffer(row[0], dtype=np.float32)
 
@@ -108,7 +125,9 @@ def main() -> int:
 
     lines = list(args.text)
     if args.file:
-        lines += [line.strip() for line in args.file.read_text().splitlines() if line.strip()]
+        lines += [
+            line.strip() for line in args.file.read_text().splitlines() if line.strip()
+        ]
     if not lines:
         parser.error("pass --text or --file")
 
@@ -117,7 +136,9 @@ def main() -> int:
     for line in lines:
         artist, _, title = line.partition(" - ")
         vector = embedder.embed(artist, title)
-        results.append({"line": line, "dim": int(vector.size), "vector": vector.tolist()})
+        results.append(
+            {"line": line, "dim": int(vector.size), "vector": vector.tolist()}
+        )
 
     if args.json:
         print(json.dumps(results))
