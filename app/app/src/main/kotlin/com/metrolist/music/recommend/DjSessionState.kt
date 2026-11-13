@@ -22,6 +22,14 @@ data class DjSessionUi(
     val transportControlsAvailable: Boolean get() = !active
 }
 
+/** A track the listener queued while the DJ owned the set. */
+data class DjUserRequest(
+    val id: String,
+    val title: String = "",
+    val artist: String = "",
+    val sessionId: Int = 0,
+)
+
 /** UI state driven by the DJ announcer; no queue mutation by itself. */
 object DjSessionState {
     private val mutable = MutableStateFlow(DjSessionUi())
@@ -30,9 +38,18 @@ object DjSessionState {
     private val openPlayerRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val openPlayer = openPlayerRequests.asSharedFlow()
 
+    private val userRequestEvents = MutableSharedFlow<DjUserRequest>(extraBufferCapacity = 4)
+
+    /** Emits when a listener request was queued and the DJ will announce it. */
+    val userRequests = userRequestEvents.asSharedFlow()
+
     /** Ask the activity to expand the player sheet for a new DJ session. */
     fun requestPlayerOpen() {
         openPlayerRequests.tryEmit(Unit)
+    }
+
+    fun userRequest(request: DjUserRequest) {
+        userRequestEvents.tryEmit(request)
     }
 
     fun speaking(persona: DjPersona) {

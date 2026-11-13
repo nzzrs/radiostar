@@ -1100,6 +1100,7 @@
     <string name="radiostar_dj_player_not_ready">Player is not ready yet. Try again in a moment.</string>
     <string name="radiostar_dj_disabled">AI DJ is disabled.</string>
     <string name="radiostar_dj_start_failed">Could not start the DJ. Try again.</string>
+    <string name="radiostar_dj_request_queued">DJ will announce your request.</string>
     <string name="radiostar_account">Server account</string>
     <string name="radiostar_account_no_server">Set the embedding server URL first</string>
     <string name="radiostar_account_linked">Linked as %1$s · %2$s</string>

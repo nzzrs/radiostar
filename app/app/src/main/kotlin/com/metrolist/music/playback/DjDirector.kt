@@ -20,10 +20,14 @@ import com.metrolist.music.recommend.DjContextProvider
 import com.metrolist.music.recommend.DjIntroPolicy
 import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjPlaybackPolicy
+import com.metrolist.music.recommend.DjQueueDiff
+import com.metrolist.music.recommend.DjQueueItem
 import com.metrolist.music.recommend.DjSchedulePolicy
 import com.metrolist.music.recommend.DjScript
+import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.recommend.DjSpeechDecision
 import com.metrolist.music.recommend.DjSpeechPolicy
+import com.metrolist.music.recommend.DjUserRequest
 import com.metrolist.music.recommend.TelemetryBias
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -89,6 +93,10 @@ class DjDirector(
     private var prepareJob: Job? = null
     private var pendingIntro: PendingIntro? = null
     private var ducked = false
+    private var queueSnapshot: List<DjQueueItem>? = null
+
+    /** Media ids the listener queued during this session, acknowledged when they become next. */
+    private val userRequestIds = LinkedHashSet<String>()
 
     /** True while the ramp has lowered the track for the voice. */
     val isDucking: Boolean get() = ducked
@@ -277,6 +285,7 @@ class DjDirector(
     /** Called when the queue or track changed; the next pair is re-planned. */
     fun onTrackStarted() {
         if (!host.sessionActive) return
+        host.player()?.currentMediaItem?.mediaId?.let(userRequestIds::remove)
         val plan = planPair() ?: return
         if (plan.pair == prepared?.pair) return
         prepareJob?.cancel()
@@ -290,14 +299,13 @@ class DjDirector(
         prefetch(plan)
     }
 
-    /** Drops the cached clip, e.g. when the queue is replaced. */
+    /**
+     * Re-reads the queue after a user edit. Playback advances on its own, so
+     * only media ids the listener added count as requests; a prepared clip is
+     * dropped because it no longer describes the next pair.
+     */
     fun onQueueChanged() {
-        prepareJob?.cancel()
-        prepareJob = null
-        pendingIntro?.job?.cancel()
-        pendingIntro = null
-        prepared = null
-        announcedPair = null
+        handler.post { detectQueueChanges() }
     }
 
     fun updateBias(loaded: TelemetryBias) {
@@ -330,6 +338,8 @@ class DjDirector(
         lastSpeechAtMs = 0L
         sessionStartedAtMs = 0L
         linksSpoken = 0
+        queueSnapshot = null
+        userRequestIds.clear()
         if (!host.isCrossfading()) host.applyVolume(host.effectiveVolume())
         Timber.tag(TAG).i("end session")
     }
@@ -350,7 +360,85 @@ class DjDirector(
         prepareJob?.cancel()
         prepareJob = null
         holdAtTrackEnd = false
+        queueSnapshot = host.player()?.let(::snapshotQueue)
+        userRequestIds.clear()
         ramp.cancel()
+    }
+
+    private fun snapshotQueue(player: Player): List<DjQueueItem> =
+        (0 until player.mediaItemCount).map { index ->
+            val item = player.getMediaItemAt(index)
+            DjQueueItem(
+                id = item.mediaId,
+                title = item.mediaMetadata.title?.toString().orEmpty(),
+                artist = item.mediaMetadata.artist?.toString().orEmpty(),
+            )
+        }
+
+    private fun pairKey(player: Player): String? {
+        val index = player.currentMediaItemIndex
+        if (index < 0 || index + 1 >= player.mediaItemCount) return null
+        return "${player.getMediaItemAt(index).mediaId}>${player.getMediaItemAt(index + 1).mediaId}"
+    }
+
+    private fun detectQueueChanges() {
+        val player = host.player()
+        if (!host.sessionActive || player == null) {
+            queueSnapshot = null
+            userRequestIds.clear()
+            invalidatePrepared()
+            announcedPair = null
+            return
+        }
+        val current = snapshotQueue(player)
+        val change = DjQueueDiff.diff(queueSnapshot, current, player.currentMediaItemIndex)
+        queueSnapshot = current
+        if (change.replaced) {
+            userRequestIds.clear()
+            invalidatePrepared()
+            announcedPair = null
+            Timber.tag(TAG).i("queue replaced tracks=%d", current.size)
+            return
+        }
+        val plannedPair = prepared?.pair
+        if (change.isUserRequest) {
+            (change.insertedNext + change.appended).forEach(::rememberRequest)
+            change.nextRequest?.let { item ->
+                Timber.tag(TAG).i(
+                    "user request id=%s insertedNext=%d appended=%d",
+                    item.id,
+                    change.insertedNext.size,
+                    change.appended.size,
+                )
+                DjSessionState.userRequest(
+                    DjUserRequest(
+                        id = item.id,
+                        title = item.title,
+                        artist = item.artist,
+                        sessionId = host.sessionId,
+                    ),
+                )
+            }
+        }
+        if (change.isUserRequest || pairKey(player) != plannedPair) {
+            invalidatePrepared()
+            onTrackStarted()
+        }
+    }
+
+    private fun rememberRequest(item: DjQueueItem) {
+        userRequestIds.remove(item.id)
+        userRequestIds.add(item.id)
+        while (userRequestIds.size > MAX_USER_REQUESTS) {
+            val oldest = userRequestIds.firstOrNull() ?: break
+            userRequestIds.remove(oldest)
+        }
+    }
+
+    private fun invalidatePrepared() {
+        prepareJob?.cancel()
+        prepareJob = null
+        prepared = null
     }
 
     private fun ensureAnnouncer(): DjAnnouncer =
@@ -364,6 +452,8 @@ class DjDirector(
 
     private fun maybeAnnounce() {
         if (!host.sessionActive) return
+        // Never cut into a link that is already audible.
+        if (ducked) return
         val player = host.player() ?: return
         if (!player.playWhenReady || player.playbackState != Player.STATE_READY) return
         val duration = player.duration
@@ -512,7 +602,11 @@ class DjDirector(
                         null
                     }
                 val chatMs = SystemClock.elapsedRealtime() - chatStart
-                val text = ai?.takeIf { it.isNotBlank() } ?: plan.fallback
+                val language = Locale.getDefault().language
+                val text =
+                    ai?.takeIf { it.isNotBlank() }?.let { line ->
+                        if (plan.requested) "$line${DjScript.requestNote(language)}".take(MAX_LINK_CHARS) else line
+                    } ?: plan.fallback
                 val ttsStart = SystemClock.elapsedRealtime()
                 val audio = prepareAudio(text)
                 val ttsMs = SystemClock.elapsedRealtime() - ttsStart
@@ -655,12 +749,22 @@ class DjDirector(
                 linksSpoken = linksSpoken,
                 roll = roll,
             )
+        val language = Locale.getDefault().language
+        val requested = userRequestIds.contains(next.mediaId)
         val text =
-            DjScript.announcement(
-                title = nextTitle,
-                artist = nextArtist,
-                language = Locale.getDefault().language,
-            )
+            if (requested) {
+                DjScript.request(
+                    title = nextTitle,
+                    artist = nextArtist,
+                    language = language,
+                )
+            } else {
+                DjScript.announcement(
+                    title = nextTitle,
+                    artist = nextArtist,
+                    language = language,
+                )
+            }
         if (text.isEmpty()) return null
         val fact =
             if (decision.useFact) {
@@ -675,12 +779,12 @@ class DjDirector(
                     trackNumber = index + 1,
                     elapsedMinutes = (SystemClock.elapsedRealtime() - sessionStartedAtMs) / 60_000L,
                     distinctArtists = artists,
-                    language = Locale.getDefault().language,
+                    language = language,
                 )
             } else {
                 null
             }
-        val fallback = if (fact.isNullOrBlank()) text else "$text $fact".take(260)
+        val fallback = if (fact.isNullOrBlank()) text else "$text $fact".take(MAX_LINK_CHARS)
         return DjPairPlan(
             index = index,
             current = current,
@@ -692,6 +796,7 @@ class DjDirector(
             decision = decision,
             fact = fact,
             fallback = fallback,
+            requested = requested,
         )
     }
 
@@ -706,6 +811,7 @@ class DjDirector(
         val decision: DjSpeechDecision,
         val fact: String?,
         val fallback: String,
+        val requested: Boolean,
     )
 
     private data class IntroRequest(
@@ -758,5 +864,7 @@ class DjDirector(
         const val CHAT_TIMEOUT_MS = 25_000L
         const val LINK_CONTEXT_TIMEOUT_MS = 2_000L
         const val INTRO_WATCHDOG_MS = 20_000L
+        const val MAX_LINK_CHARS = 260
+        const val MAX_USER_REQUESTS = 32
     }
 }
