@@ -13,6 +13,8 @@ import androidx.room.withTransaction
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
+import com.metrolist.music.constants.RadioStarDayStartHourKey
+import com.metrolist.music.constants.RadioStarPlaylistMetaKey
 import com.metrolist.music.constants.RadioStarProfilesKey
 import com.metrolist.music.constants.RadioStarServerKey
 import com.metrolist.music.db.MusicDatabase
@@ -64,6 +66,7 @@ class RadioStarPlaylistRepository
             val horizon: PlaylistHorizon,
             val trackCount: Int,
             val artworkSeeds: List<Int> = emptyList(),
+            val updatedAt: LocalDateTime? = null,
         )
 
         private val mutableCards = MutableStateFlow<List<Card>>(emptyList())
@@ -97,8 +100,8 @@ class RadioStarPlaylistRepository
          */
         suspend fun refreshIfDue(force: Boolean = false) {
             mutex.withLock {
-                val today = PlaylistSchedule.scheduleDate(LocalDateTime.now())
                 val prefs = context.dataStore.data.first()
+                val today = PlaylistSchedule.scheduleDate(LocalDateTime.now(), dayStartHour(prefs))
                 val plan =
                     PlaylistSchedule.plan(
                         today = today,
@@ -415,6 +418,7 @@ class RadioStarPlaylistRepository
             slate: List<SlateEntry>,
         ) {
             val now = LocalDateTime.now()
+            val written = slate.count { it.candidate.tag != null }
             database.withTransaction {
                 val existing = database.playlistEntity(spec.id)
                 val entity =
@@ -448,7 +452,36 @@ class RadioStarPlaylistRepository
                     )
                 }
             }
+            // Only a real rewrite reaches this point, so the version counts
+            // generated lists and never browsing or playback.
+            recordGeneration(spec, written, now)
         }
+
+        private suspend fun recordGeneration(
+            spec: PlaylistSpec,
+            trackCount: Int,
+            now: LocalDateTime,
+        ) {
+            runCatching {
+                val prefs = context.dataStore.data.first()
+                val date = PlaylistSchedule.scheduleDate(now, dayStartHour(prefs))
+                val stamp =
+                    if (spec.horizon == PlaylistHorizon.WEEKLY) {
+                        PlaylistSchedule.weeklyStamp(date)
+                    } else {
+                        PlaylistSchedule.dailyStamp(date)
+                    }
+                val metas = GeneratedPlaylistMetaCodec.decode(prefs[RadioStarPlaylistMetaKey]).toMutableMap()
+                metas[spec.id] = (metas[spec.id] ?: GeneratedPlaylistMeta()).afterRewrite(now, stamp, trackCount)
+                val encoded = GeneratedPlaylistMetaCodec.encode(metas)
+                context.dataStore.edit { it[RadioStarPlaylistMetaKey] = encoded }
+            }.onFailure { Timber.tag(TAG).w(it, "could not record metadata for %s", spec.id) }
+        }
+
+        private fun dayStartHour(prefs: androidx.datastore.preferences.core.Preferences): Long =
+            PlaylistSchedule.normalizeDayStartHour(
+                (prefs[RadioStarDayStartHourKey] ?: PlaylistSchedule.DAY_START_HOUR.toInt()).toLong(),
+            )
 
         private suspend fun loadCards() {
             val loaded =
@@ -461,7 +494,7 @@ class RadioStarPlaylistRepository
                             .first()
                             .take(4)
                             .map { it.song.id.hashCode() }
-                    Card(spec.id, spec.title, spec.horizon, playlist.songCount, seeds)
+                    Card(spec.id, spec.title, spec.horizon, playlist.songCount, seeds, playlist.playlist.lastUpdateTime)
                 }
             mutableCards.value = loaded
             Timber.tag(TAG).i("cards=%d", loaded.size)

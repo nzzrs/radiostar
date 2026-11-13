@@ -422,6 +422,35 @@
     <string name="dj_ai_desc">Spoken links between tracks use your AI provider.</string>
     <string name="dj_ai_provider">AI provider</string>
     <string name="dj_ai_provider_desc">Choose the provider and model for commentary.</string>
+    <string name="dj_direct_tts">Speak the intro right away</string>
+    <string name="dj_direct_tts_desc">Skip the chat wait at the start: send the DJ\'s local intro to a styled voice. Turn off to write the intro with the chat model first.</string>
+    <string name="dj_section_context">Time &amp; place</string>
+    <string name="dj_context_enable">Use local context</string>
+    <string name="dj_context_enable_desc">Let the DJ mention the time, your city, weather and headlines.</string>
+    <string name="dj_context_privacy">Time is read on this device. The city comes from a coarse last-known location or the city you type below. Weather and headlines are fetched from Open-Meteo and Google News without an account, and only while their toggles are on.</string>
+    <string name="dj_context_weather">Weather</string>
+    <string name="dj_context_weather_desc">Current conditions for your city from Open-Meteo.</string>
+    <string name="dj_context_news">Headlines</string>
+    <string name="dj_context_news_desc">A few public news headlines from Google News.</string>
+    <string name="dj_context_city">City</string>
+    <string name="dj_context_city_desc">Fallback when location is unavailable or denied.</string>
+    <string name="dj_context_city_hint">e.g. Lisbon</string>
+    <string name="radiostar_dj_create">New DJ</string>
+    <string name="radiostar_dj_edit">Edit DJ</string>
+    <string name="radiostar_dj_delete_title">Delete this DJ?</string>
+    <string name="radiostar_dj_delete_message">%1$s will be removed from this device.</string>
+    <string name="radiostar_dj_editor_new">Create a DJ</string>
+    <string name="radiostar_dj_editor_edit">Edit DJ</string>
+    <string name="radiostar_dj_field_name">Name</string>
+    <string name="radiostar_dj_field_emoji">Emoji</string>
+    <string name="radiostar_dj_field_emoji_hint">One or two characters.</string>
+    <string name="radiostar_dj_field_style">Style</string>
+    <string name="radiostar_dj_field_pitch">Pitch</string>
+    <string name="radiostar_dj_field_rate">Speed</string>
+    <string name="radiostar_dj_error_name">Give this DJ a name.</string>
+    <string name="radiostar_dj_error_emoji">Use one or two emoji characters.</string>
+    <string name="radiostar_dj_error_voice_range">Pitch and speed must stay between 0.5 and 1.5.</string>
+    <string name="radiostar_dj_voice_sample">Hi, I\'m %1$s. This is how I sound between your tracks.</string>
 
     <!-- Updater -->
     <string name="updater">Updater</string>
@@ -1071,6 +1100,7 @@
     <string name="radiostar_dj_player_not_ready">Player is not ready yet. Try again in a moment.</string>
     <string name="radiostar_dj_disabled">AI DJ is disabled.</string>
     <string name="radiostar_dj_start_failed">Could not start the DJ. Try again.</string>
+    <string name="radiostar_dj_request_queued">DJ will announce your request.</string>
     <string name="radiostar_account">Server account</string>
     <string name="radiostar_account_no_server">Set the embedding server URL first</string>
     <string name="radiostar_account_linked">Linked as %1$s · %2$s</string>
@@ -1113,4 +1143,20 @@
     <string name="radiostar_share_base">Share link base</string>
     <string name="radiostar_listen_together_server">Listen Together server</string>
     <string name="radiostar_infra_hint">Point these at your own deployment instead of the upstream Metrolist servers.</string>
+    <string name="radiostar_day_start">Playlist day start</string>
+    <string name="radiostar_day_start_desc">Daily playlists rebuild after %1$s.</string>
+    <string name="radiostar_day_start_hint">Before this hour, yesterday\'s lists stay current. Weekly lists change at the start of the week.</string>
+    <string name="radiostar_info">Info</string>
+    <string name="radiostar_playlist_info">Playlist info</string>
+    <string name="radiostar_info_created">Created</string>
+    <string name="radiostar_info_updated">Last updated</string>
+    <string name="radiostar_info_version">Version</string>
+    <string name="radiostar_info_horizon">Horizon</string>
+    <string name="radiostar_info_next_refresh">Next refresh</string>
+    <string name="radiostar_info_tracks">Tracks</string>
+    <string name="radiostar_info_none">—</string>
+    <string name="radiostar_updated_today">Updated today %1$s</string>
+    <string name="radiostar_updated_yesterday">Updated yesterday %1$s</string>
+    <string name="radiostar_updated_days_ago">Updated %1$d days ago</string>
+    <string name="radiostar_updated_unknown">Update time unknown</string>
 </resources>

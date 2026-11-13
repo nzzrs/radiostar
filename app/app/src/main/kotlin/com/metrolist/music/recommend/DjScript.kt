@@ -41,7 +41,7 @@ object DjScript {
         val artist = clean(firstArtist)
         val track = if (artist.isEmpty()) title else "$title de $artist"
         val trackEn = if (artist.isEmpty()) title else "$title by $artist"
-        val name = persona.displayName.removePrefix("DJ ")
+        val name = persona.shortName
         val variants =
             if (language.lowercase().startsWith("es")) {
                 listOf(
@@ -86,6 +86,39 @@ object DjScript {
     }
 
     /**
+     * Acknowledges a track the listener queued themselves. Used instead of
+     * [announcement] so the request is named and the DJ keeps its order.
+     */
+    fun request(
+        title: String,
+        artist: String,
+        language: String,
+    ): String {
+        val cleanTitle = clean(title)
+        if (cleanTitle.isEmpty()) return ""
+        val cleanArtist = clean(artist)
+        val text =
+            if (language.lowercase().startsWith("es")) {
+                if (cleanArtist.isEmpty()) {
+                    "Pediste $cleanTitle. Aquí va."
+                } else {
+                    "Pediste $cleanTitle, de $cleanArtist. Aquí va."
+                }
+            } else {
+                if (cleanArtist.isEmpty()) {
+                    "You asked for $cleanTitle. Here it is."
+                } else {
+                    "You asked for $cleanTitle by $cleanArtist. Here it is."
+                }
+            }
+        return text.take(MAX_CHARS)
+    }
+
+    /** Short suffix that marks an already built link as the listener's request. */
+    fun requestNote(language: String): String =
+        if (language.lowercase().startsWith("es")) " A petición tuya." else " By your request."
+
+    /**
      * A true, session-specific observation. It never invents facts about the
      * artist, so it is safe to speak when the AI is unavailable.
      */
@@ -99,7 +132,7 @@ object DjScript {
         val tracks = trackNumber.coerceAtLeast(1)
         val minutes = elapsedMinutes.coerceAtLeast(1L)
         val artists = distinctArtists.coerceAtLeast(1)
-        val name = persona.displayName.removePrefix("DJ ")
+        val name = persona.shortName
         val variants =
             if (language.lowercase().startsWith("es")) {
                 listOf(

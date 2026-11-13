@@ -9,6 +9,7 @@ import android.app.ActivityManager
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Build
 import android.os.Process
@@ -18,6 +19,7 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
+import coil3.imageLoader
 import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
@@ -33,6 +35,7 @@ import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.recommend.AiProviderResolver
+import com.metrolist.music.recommend.PlaylistSchedule
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.recommend.RadioStarSync
 import com.metrolist.music.recommend.ScrobblerSync
@@ -59,6 +62,7 @@ import java.io.IOException
 import java.net.Authenticator
 import java.net.PasswordAuthentication
 import java.net.Proxy
+import java.time.LocalDateTime
 import java.util.Locale
 import javax.inject.Inject
 
@@ -104,11 +108,20 @@ class App :
         // Build the daily/weekly playlists in the background. This only writes
         // local playlist rows; it never changes the playback queue.
         applicationScope.launch(Dispatchers.IO) {
-            // Check periodically so a session left open past 06:00 rebuilds
-            // the daily lists without waiting for a restart.
+            // Check on app open and then periodically. The delay shortens to
+            // land right after the configured playlist day start.
             while (true) {
                 radioStarRepository.refreshIfDue()
-                delay(10 * 60_000L)
+                val hour =
+                    dataStore.data
+                        .first()[RadioStarDayStartHourKey]
+                        ?: PlaylistSchedule.DAY_START_HOUR.toInt()
+                delay(
+                    PlaylistSchedule.nextCheckDelayMillis(
+                        LocalDateTime.now(),
+                        PlaylistSchedule.normalizeDayStartHour(hour.toLong()),
+                    ),
+                )
             }
         }
         applicationScope.launch(Dispatchers.IO) {
@@ -324,6 +337,21 @@ class App :
 
     @Volatile
     private var cachedCoilCacheSize: Int? = null
+
+    @Suppress("DEPRECATION") // TRIM_MEMORY_MODERATE is deprecated on API 34+, still delivered on older ones
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            // Under significant memory pressure, release Coil's image cache.
+            // This frees ~15 % of the heap (~19 MB on a 128 MB heap) so the
+            // player or other components don't crash with OOM while the user
+            // is idle on the library tab.
+            runCatching {
+                imageLoader.memoryCache?.trimToSize(0)
+                Timber.d("Coil memory cache cleared on trim level=$level")
+            }
+        }
+    }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val cacheSize = cachedCoilCacheSize ?: runBlocking {

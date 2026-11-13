@@ -39,6 +39,19 @@ data class GoBeyondRankContext(
      */
     val literalTerms: Set<String> = emptySet(),
     val literalPenalty: Double = 0.9,
+    /**
+     * The mood title, aliases and prompt descriptors. They are a hard,
+     * embedding-proof penalty: a track called "Euphoria" is not euphoric music.
+     */
+    val literalMoodTerms: Set<String> = emptySet(),
+    val literalMoodPenalty: Double = 1.1,
+    /**
+     * Local BPM/RMS/key per track id. Only tracks the phone has played have a
+     * profile; missing entries stay neutral and keep their semantic score.
+     */
+    val profiles: Map<String, AudioProfile> = emptyMap(),
+    /** Sound the card is asking for, when it has one. */
+    val sonicTarget: SonicTarget? = null,
     val heardIds: Set<String> = emptySet(),
     val recentIds: Set<String> = emptySet(),
     val skippedIds: Set<String> = emptySet(),
@@ -129,6 +142,21 @@ object GoBeyondRanker {
                 score -= context.literalPenalty * literalHits.coerceAtMost(2)
             }
         }
+        if (context.literalMoodTerms.isNotEmpty()) {
+            val moodHits =
+                context.literalMoodTerms.count { term ->
+                    matchesLiteral(text, normalizeText(term))
+                }
+            if (moodHits > 0) {
+                score -= context.literalMoodPenalty * moodHits.coerceAtMost(2)
+            }
+        }
+        val target = context.sonicTarget
+        if (target != null) {
+            GoBeyondSonic.score(context.profiles[candidate.id], target)?.let { fit ->
+                score += target.weight * (2.0 * fit - 1.0)
+            }
+        }
         val promptHits =
             context.promptTerms.count { term ->
                 val normalized = normalizeText(term)
@@ -160,6 +188,19 @@ object GoBeyondRanker {
             .replace(Regex("\\p{M}+"), "")
             .replace(Regex("[^a-z0-9]+"), " ")
             .trim()
+
+    private fun matchesLiteral(
+        text: String,
+        term: String,
+    ): Boolean {
+        if (term.isBlank()) return false
+        if (term.contains(' ')) return text.contains(term)
+        if (term.length >= 5) {
+            val stem = term.take(5)
+            return text.split(' ').any { word -> word.length >= 5 && word.take(5) == stem }
+        }
+        return text.split(' ').any { word -> word == term }
+    }
 
     private fun dedupeKey(candidate: GoBeyondCandidate): String =
         buildString {

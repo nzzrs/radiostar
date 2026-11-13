@@ -45,6 +45,7 @@ import com.metrolist.music.db.entities.SortedSongAlbumMap
 import com.metrolist.music.db.entities.SortedSongArtistMap
 import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.extensions.toSQLiteQuery
+import com.metrolist.music.utils.reportException
 import timber.log.Timber
 import java.io.File
 import java.text.SimpleDateFormat
@@ -66,22 +67,42 @@ class MusicDatabase(
     fun query(block: MusicDatabase.() -> Unit) =
         with(delegate) {
             queryExecutor.execute {
-                block(this@MusicDatabase)
+                guardDatabaseThread(
+                    onFailure = { e ->
+                        Timber.e(e, "Database query failed")
+                        reportException(e)
+                    },
+                ) {
+                    block(this@MusicDatabase)
+                }
             }
         }
 
     fun transaction(block: MusicDatabase.() -> Unit) =
         with(delegate) {
             transactionExecutor.execute {
-                runInTransaction {
-                    block(this@MusicDatabase)
+                guardDatabaseThread(
+                    onFailure = { e ->
+                        Timber.e(e, "Database transaction failed")
+                        reportException(e)
+                    },
+                ) {
+                    runInTransaction {
+                        block(this@MusicDatabase)
+                    }
                 }
             }
         }
 
     suspend fun withTransaction(block: suspend MusicDatabase.() -> Unit) =
         delegate.withTransaction {
-            block(this@MusicDatabase)
+            try {
+                block(this@MusicDatabase)
+            } catch (e: Exception) {
+                Timber.e(e, "Database withTransaction failed")
+                reportException(e)
+                throw e
+            }
         }
 
     fun close() = delegate.close()

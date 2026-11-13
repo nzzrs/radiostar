@@ -7,6 +7,7 @@ package com.metrolist.music.playback
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.PowerManager
@@ -15,6 +16,7 @@ import android.speech.tts.UtteranceProgressListener
 import com.metrolist.music.recommend.AiFeature
 import com.metrolist.music.recommend.AiProviderResolver
 import com.metrolist.music.recommend.AiTtsClient
+import com.metrolist.music.recommend.DjDuckGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,26 +32,38 @@ import java.util.Locale
  *
  * The phone's own engine is used instead of bundling a voice, so the APK stays
  * small and the user picks the voice in Android. A short partial wake lock
- * keeps the utterance alive while the screen is off, and the caller gets
- * `duck(true/false)` around it to lower the music.
+ * keeps the utterance alive while the screen is off.
+ *
+ * The music is only ducked once the voice is actually audible: a synthesized
+ * clip ducks on [MediaPlayer.start], the phone engine on its `onStart`
+ * callback. A failed attempt leaves the current song untouched.
  */
 class DjAnnouncer(
     context: Context,
     private val onDuck: (Boolean) -> Unit,
 ) {
+    /** Callbacks for one spoken link; all run on the main thread. */
+    data class Callbacks(
+        val onReady: () -> Unit = {},
+        val onStart: () -> Unit = {},
+        val onDone: () -> Unit = {},
+        val onError: () -> Unit = {},
+    )
+
     private val appContext = context.applicationContext
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val duckGate = DjDuckGate()
 
     private var tts: TextToSpeech? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var currentUtterance: String? = null
-    private var currentOnDone: (() -> Unit)? = null
+    private var currentCallbacks: Callbacks? = null
     private var pending: PendingUtterance? = null
     private var remoteJob: Job? = null
     private var mediaPlayer: MediaPlayer? = null
     private var remoteFile: File? = null
-    private var ducked = false
+    private var lastDurationMs: Long = 0L
     private var pitch = 0.95f
     private var rate = 0.98f
 
@@ -64,7 +78,7 @@ class DjAnnouncer(
                     Timber.tag(TAG).w("tts init failed status=%d", status)
                     val failed = pending
                     pending = null
-                    failed?.onDone?.invoke()
+                    failed?.callbacks?.onError?.invoke()
                     return@TextToSpeech
                 }
                 configure()
@@ -91,29 +105,34 @@ class DjAnnouncer(
         engine.setOnUtteranceProgressListener(
             object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
+                    if (utteranceId != currentUtterance) return
                     Timber.tag(TAG).i("utterance start id=%s", utteranceId)
+                    // First audible frame: only now may the music drop.
+                    duck()
+                    currentCallbacks?.onStart?.invoke()
                 }
 
                 override fun onDone(utteranceId: String?) {
                     Timber.tag(TAG).i("utterance done id=%s", utteranceId)
-                    finish(utteranceId)
+                    finish(utteranceId, error = false)
                 }
 
                 @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) = finish(utteranceId)
+                override fun onError(utteranceId: String?) = finish(utteranceId, error = true)
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     Timber.tag(TAG).w("tts error id=%s code=%d", utteranceId, errorCode)
-                    finish(utteranceId)
+                    finish(utteranceId, error = true)
                 }
 
-                override fun onStop(utteranceId: String?, interrupted: Boolean) = finish(utteranceId)
+                override fun onStop(utteranceId: String?, interrupted: Boolean) =
+                    finish(utteranceId, error = true)
             },
         )
         ready = true
         pending?.let { queued ->
             pending = null
-            speakNow(queued.text, queued.id, queued.onDone)
+            speakNow(queued.text, queued.id, queued.callbacks)
         }
     }
 
@@ -126,47 +145,47 @@ class DjAnnouncer(
         }
     }
 
+    /**
+     * Speaks [text] with an already synthesized [audio] clip, or hands the line
+     * to the phone engine when no clip is available.
+     */
     fun announce(
         text: String,
         utteranceId: String,
-        onDone: (() -> Unit)? = null,
+        audio: ByteArray?,
+        callbacks: Callbacks = Callbacks(),
     ): Boolean {
-        if (text.isBlank()) return false
+        if (text.isBlank() && audio == null) return false
         remoteJob?.cancel()
         stopRemotePlayback()
+        lastDurationMs = 0L
         currentUtterance = utteranceId
-        currentOnDone = onDone
-        duck()
+        currentCallbacks = callbacks
         acquireWakeLock()
-        remoteJob = scope.launch {
-            val config = runCatching { AiProviderResolver.resolve(appContext, AiFeature.TTS) }.getOrNull()
-            if (config?.canSpeak == true) {
-                val audio = AiTtsClient.synthesize(config, text)
-                if (audio != null && currentUtterance == utteranceId) {
-                    playRemote(audio, text, utteranceId)
-                    return@launch
-                }
-                Timber.tag(TAG).w("AI voice unavailable, falling back to phone TTS")
-            }
-            if (currentUtterance != utteranceId) return@launch
-            speakPhone(text, utteranceId)
+        if (audio != null && audio.isNotEmpty()) {
+            remoteJob = scope.launch { playRemote(audio, text, utteranceId) }
+            return true
         }
-        return true
+        return speakPhone(text, utteranceId)
     }
 
     private fun speakPhone(
         text: String,
         utteranceId: String,
-    ) {
-        if (!ready) {
-            pending = PendingUtterance(text, utteranceId, currentOnDone)
-            prepare()
-            return
+    ): Boolean {
+        if (text.isBlank()) {
+            finish(utteranceId, error = true)
+            return false
         }
-        speakNow(text, utteranceId, currentOnDone)
+        if (!ready) {
+            pending = PendingUtterance(text, utteranceId, currentCallbacks ?: Callbacks())
+            prepare()
+            return true
+        }
+        return speakNow(text, utteranceId, currentCallbacks)
     }
 
-    /** Plays the synthesized MP3, or hands the same line to the phone engine. */
+    /** Plays the synthesized clip, or hands the same line to the phone engine. */
     private suspend fun playRemote(
         audio: ByteArray,
         text: String,
@@ -198,7 +217,7 @@ class DjAnnouncer(
             player.setDataSource(file.absolutePath)
             player.setOnCompletionListener {
                 stopRemotePlayback()
-                finish(utteranceId)
+                finish(utteranceId, error = false)
             }
             player.setOnErrorListener { _, _, _ ->
                 Timber.tag(TAG).w("remote tts playback failed")
@@ -207,7 +226,16 @@ class DjAnnouncer(
                 true
             }
             player.prepare()
+            if (currentUtterance != utteranceId) {
+                stopRemotePlayback()
+                return@runCatching
+            }
+            lastDurationMs = player.duration.toLong().coerceAtLeast(0L)
+            currentCallbacks?.onReady?.invoke()
             player.start()
+            // First audible frame: only now may the music drop.
+            duck()
+            currentCallbacks?.onStart?.invoke()
         }.onFailure {
             Timber.tag(TAG).w(it, "remote tts playback threw")
             stopRemotePlayback()
@@ -218,14 +246,13 @@ class DjAnnouncer(
     private fun speakNow(
         text: String,
         utteranceId: String,
-        onDone: (() -> Unit)?,
+        callbacks: Callbacks?,
     ): Boolean {
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f)
         }
         currentUtterance = utteranceId
-        currentOnDone = onDone
-        duck()
+        currentCallbacks = callbacks
         acquireWakeLock()
         val result =
             try {
@@ -235,9 +262,11 @@ class DjAnnouncer(
                 null
             }
         if (result != TextToSpeech.SUCCESS) {
-            finish(utteranceId)
+            finish(utteranceId, error = true)
             return false
         }
+        // The engine accepted it; onStart will duck once it is audible.
+        callbacks?.onReady?.invoke()
         return true
     }
 
@@ -254,11 +283,15 @@ class DjAnnouncer(
         tts = null
         ready = false
         currentUtterance = null
-        currentOnDone = null
+        currentCallbacks = null
         pending = null
         releaseWakeLock()
-        unduck()
+        if (duckGate.onPlaybackStopped()) onDuck(false)
+        duckGate.reset()
     }
+
+    /** Duration of the clip that is currently playing, or 0 when unknown. */
+    fun currentClipDurationMs(): Long = lastDurationMs
 
     private fun stopRemotePlayback() {
         val player = mediaPlayer
@@ -273,26 +306,22 @@ class DjAnnouncer(
         remoteFile = null
     }
 
-    private fun finish(utteranceId: String?) {
+    private fun finish(
+        utteranceId: String?,
+        error: Boolean,
+    ) {
         if (utteranceId != currentUtterance) return
         currentUtterance = null
-        val callback = currentOnDone
-        currentOnDone = null
+        val callbacks = currentCallbacks
+        currentCallbacks = null
         releaseWakeLock()
-        unduck()
-        callback?.invoke()
+        val restore = duckGate.onPlaybackStopped()
+        if (restore) onDuck(false)
+        if (error) callbacks?.onError?.invoke() else callbacks?.onDone?.invoke()
     }
 
     private fun duck() {
-        if (ducked) return
-        ducked = true
-        onDuck(true)
-    }
-
-    private fun unduck() {
-        if (!ducked) return
-        ducked = false
-        onDuck(false)
+        if (duckGate.onPlaybackStarted()) onDuck(true)
     }
 
     private fun acquireWakeLock() {
@@ -322,10 +351,51 @@ class DjAnnouncer(
     private data class PendingUtterance(
         val text: String,
         val id: String,
-        val onDone: (() -> Unit)?,
+        val callbacks: Callbacks,
     )
 
-    private companion object {
-        const val TAG = "RadioStarDj"
+    companion object {
+        private const val TAG = "RadioStarDj"
+
+        /** Duration of synthesized speech, probed before scheduling it. */
+        fun measureClipDurationMs(
+            context: Context,
+            audio: ByteArray,
+        ): Long {
+            if (audio.isEmpty()) return 0L
+            val file =
+                runCatching {
+                    File.createTempFile("dj-duration", ".mp3", context.applicationContext.cacheDir)
+                        .apply { writeBytes(audio) }
+                }.getOrNull() ?: return 0L
+            val retriever = MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.absolutePath)
+                retriever
+                    .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull()
+                    ?.coerceAtLeast(0L)
+                    ?: 0L
+            } catch (error: Throwable) {
+                Timber.tag(TAG).w(error, "clip duration probe failed")
+                0L
+            } finally {
+                runCatching { retriever.release() }
+                file.delete()
+            }
+        }
+
+        /** Resolves the TTS provider, or null when speech synthesis is unavailable. */
+        suspend fun resolveTtsConfig(context: Context) =
+            runCatching { AiProviderResolver.resolve(context, AiFeature.TTS) }.getOrNull()
+
+        suspend fun synthesize(
+            context: Context,
+            text: String,
+        ): ByteArray? {
+            val config = resolveTtsConfig(context) ?: return null
+            if (!config.canSpeak) return null
+            return AiTtsClient.synthesize(config, text)
+        }
     }
 }
