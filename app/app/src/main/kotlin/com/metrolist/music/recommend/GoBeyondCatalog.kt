@@ -146,7 +146,10 @@ data class GoBeyondSelection(
     /** Queries for an artist journey. All results are later filtered to the artist. */
     fun artistSearchQueries(): List<String> {
         val name = artist?.trim()?.takeIf(String::isNotBlank) ?: return emptyList()
-        val hints = listOfNotNull(genre?.trim(), country?.trim(), mood?.trim()).filter { it.isNotBlank() }
+        val soundHint =
+            genre?.trim()?.takeIf(String::isNotBlank)
+                ?: GoBeyondSonic.targetForMood(mood)?.tags?.firstOrNull()
+        val hints = listOfNotNull(soundHint, country?.trim()).filter { it.isNotBlank() }
         val base =
             listOf(
                 name,
@@ -184,7 +187,10 @@ data class GoBeyondSelection(
                 .distinct()
         }
         val sound =
-            listOfNotNull(mood?.trim(), era)
+            listOfNotNull(
+                GoBeyondSonic.targetForMood(mood)?.tags?.firstOrNull(),
+                era,
+            )
                 .filter { it.isNotBlank() }
                 .joinToString(" ")
         val combined = listOf(adjective, sound).filter { it.isNotBlank() }.joinToString(" ")
@@ -201,12 +207,15 @@ data class GoBeyondSelection(
     }
 
     /**
-     * Search phrases are deliberately narrow first, then wider. The colour
-     * name is never a keyword: "purple" must mean a sound, not a song title.
+     * Search phrases are deliberately narrow first, then wider. Neither a
+     * colour nor a mood is a keyword: "purple" and "euphoric" must mean a
+     * sound, not a song title. Mood queries come from the curated sonic target
+     * (genre/era tags) and from seed artists the listener already plays.
      */
-    fun searchQueries(): List<String> {
+    fun searchQueries(seedArtists: List<String> = emptyList()): List<String> {
         val era = periodLabel()
-        val queries = ArrayList<String>(6)
+        val queries = ArrayList<String>(8)
+        val moodTarget = GoBeyondSonic.targetForMood(mood)
 
         if (artist != null) {
             queries += artistSearchQueries()
@@ -218,41 +227,45 @@ data class GoBeyondSelection(
             queries += countrySearchQueries()
         } else {
             val core =
-                listOfNotNull(genre, mood)
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .joinToString(" ")
-                    .ifBlank { freeText?.trim().orEmpty() }
+                listOfNotNull(
+                    genre?.trim()?.takeIf(String::isNotBlank),
+                    era,
+                ).joinToString(" ")
             if (core.isNotBlank()) {
-                queries += cleanQuery(listOf(core, era).filterNotNull().joinToString(" "))
-                queries += cleanQuery("$core music")
+                queries += cleanQuery(core)
+                genre?.trim()?.takeIf(String::isNotBlank)?.let { queries += cleanQuery("$it music") }
+            } else {
+                freeText?.trim()?.takeIf(String::isNotBlank)?.let { queries += cleanQuery(it) }
             }
         }
 
-        era?.let { queries += cleanQuery("$it music") }
+        if (country == null) {
+            era?.let { queries += cleanQuery("$it music") }
+        }
 
         val colorEntry = GoBeyondColors.byName(color)
         colorEntry?.let { entry ->
             queries += GoBeyondColors.searchQueryTerms(entry)
         }
-        if (colorEntry == null) {
-            val descriptor =
-                mood?.let {
-                    GoBeyondCatalog.moods
-                        .firstOrNull { moodEntry -> moodEntry.title.equals(it, ignoreCase = true) }
-                        ?.prompt
-                }
-            descriptor
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotEmpty() }
-                ?.take(4)
-                ?.joinToString(" ")
-                ?.takeIf { it.isNotBlank() }
-                ?.let { queries += cleanQuery(it) }
+        moodTarget?.let { target ->
+            queries += GoBeyondSonic.queryTags(target, era, genre)
         }
-        if (queries.isEmpty()) queries += "music"
-        return queries.map(::cleanQuery).filter { it.isNotBlank() }.distinct()
+
+        seedArtists
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(SEED_ARTIST_QUERIES)
+            .forEach { seeds -> queries += cleanQuery("$seeds radio") }
+
+        val sanitized =
+            queries
+                .map { GoBeyondSonic.stripLiteralMood(it, mood) }
+                .map(::cleanQuery)
+                .filter { it.isNotBlank() }
+                .distinct()
+        return sanitized.ifEmpty { listOf("music") }
     }
 
     private fun cleanQuery(value: String): String =
@@ -281,6 +294,10 @@ data class GoBeyondSelection(
         }
         freeText?.trim()?.takeIf(String::isNotBlank)?.let { parts += it }
         return parts.joinToString(", ").ifBlank { "music" }
+    }
+
+    private companion object {
+        const val SEED_ARTIST_QUERIES = 2
     }
 }
 
