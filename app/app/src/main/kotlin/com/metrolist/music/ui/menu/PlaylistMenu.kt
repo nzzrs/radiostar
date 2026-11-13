@@ -57,13 +57,16 @@ import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.YouTubeQueue
+import com.metrolist.music.recommend.RadioStarPlaylistSpecs
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
+import com.metrolist.music.ui.component.PlaylistInfoDialog
 import com.metrolist.music.ui.component.PlaylistListItem
 import com.metrolist.music.ui.component.TextFieldDialog
+import com.metrolist.music.ui.component.rememberGeneratedPlaylistMeta
 import com.metrolist.music.ui.menu.ExportDialog
 import com.metrolist.music.utils.PlaylistExporter
 import com.metrolist.music.utils.getExportFileUri
@@ -115,6 +118,7 @@ fun PlaylistMenu(
     val isPinned by database.speedDialDao.isPinned(playlist.id).collectAsStateWithLifecycle(initialValue = false)
 
     var showExportDialog by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(songs) {
         if (songs.isEmpty()) return@LaunchedEffect
@@ -594,6 +598,18 @@ fun PlaylistMenu(
                                 onClick = { showExportDialog = true },
                             ),
                         )
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.radiostar_info)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.info),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = { showInfoDialog = true },
+                            ),
+                        )
                         if (autoPlaylist != true && !isGuest) {
                             add(
                                 Material3MenuItemData(
@@ -641,6 +657,20 @@ fun PlaylistMenu(
     }
 
     val exportPlaylistStr = stringResource(R.string.export_playlist)
+
+    if (showInfoDialog) {
+        val spec = RadioStarPlaylistSpecs.byId(playlist.id)
+        val meta = rememberGeneratedPlaylistMeta(playlist.id)
+        PlaylistInfoDialog(
+            title = playlist.playlist.name,
+            createdAt = playlist.playlist.createdAt,
+            updatedAt = playlist.playlist.lastUpdateTime,
+            trackCount = songs.size.takeIf { it > 0 } ?: playlist.songCount,
+            version = if (spec != null) meta?.version else null,
+            horizon = spec?.horizon,
+            onDismiss = { showInfoDialog = false },
+        )
+    }
 
     if (showExportDialog) {
         ExportDialog(

@@ -29,6 +29,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -39,9 +41,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarDayStartHourKey
 import com.metrolist.music.recommend.PlaylistHorizon
+import com.metrolist.music.recommend.PlaylistSchedule
+import com.metrolist.music.recommend.PlaylistUpdateFormatter
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.ui.component.GeneratedPlaylistArtwork
+import com.metrolist.music.ui.component.playlistUpdateLabelText
+import com.metrolist.music.utils.rememberPreference
+import java.time.LocalDateTime
 
 /**
  * Home shelf with the generated playlists. The DJ hero sits with the RadioStar
@@ -60,6 +68,8 @@ fun RadioStarShelf(
 ) {
     val daily = cards.filter { it.horizon == PlaylistHorizon.DAILY }
     val weekly = cards.filter { it.horizon == PlaylistHorizon.WEEKLY }
+    val dayStartHour by rememberPreference(RadioStarDayStartHourKey, PlaylistSchedule.DAY_START_HOUR.toInt())
+    val now = remember { LocalDateTime.now() }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -119,6 +129,8 @@ fun RadioStarShelf(
                     title = stringResource(R.string.radiostar_daily),
                     cards = daily,
                     artworkOpacity = artworkOpacity,
+                    dayStartHour = dayStartHour.toLong(),
+                    now = now,
                     onOpen = onOpen,
                     onPlay = onPlay,
                 )
@@ -128,6 +140,8 @@ fun RadioStarShelf(
                     title = stringResource(R.string.radiostar_weekly),
                     cards = weekly,
                     artworkOpacity = artworkOpacity,
+                    dayStartHour = dayStartHour.toLong(),
+                    now = now,
                     onOpen = onOpen,
                     onPlay = onPlay,
                 )
@@ -141,6 +155,8 @@ private fun HorizonSection(
     title: String,
     cards: List<RadioStarPlaylistRepository.Card>,
     artworkOpacity: Float,
+    dayStartHour: Long,
+    now: LocalDateTime,
     onOpen: (String) -> Unit,
     onPlay: (RadioStarPlaylistRepository.Card) -> Unit,
 ) {
@@ -158,6 +174,8 @@ private fun HorizonSection(
             PlaylistCard(
                 card = card,
                 artworkOpacity = artworkOpacity,
+                dayStartHour = dayStartHour,
+                now = now,
                 onClick = { onOpen(card.id) },
                 onPlay = { onPlay(card) },
             )
@@ -169,6 +187,8 @@ private fun HorizonSection(
 private fun PlaylistCard(
     card: RadioStarPlaylistRepository.Card,
     artworkOpacity: Float,
+    dayStartHour: Long,
+    now: LocalDateTime,
     onClick: () -> Unit,
     onPlay: () -> Unit,
 ) {
@@ -235,6 +255,20 @@ private fun PlaylistCard(
                     }
                 }
             }
+            Text(
+                text =
+                    playlistUpdateLabelText(
+                        PlaylistUpdateFormatter.label(card.updatedAt, now, dayStartHour),
+                    ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 16.dp, end = 64.dp, bottom = 16.dp),
+            )
         }
     }
 }

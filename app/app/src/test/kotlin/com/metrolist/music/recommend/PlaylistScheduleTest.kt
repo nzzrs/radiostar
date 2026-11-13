@@ -96,6 +96,86 @@ class PlaylistScheduleTest {
     }
 
     @Test
+    fun `a custom day start moves the playlist day boundary`() {
+        assertEquals(
+            LocalDate.of(2026, 11, 5),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 7, 59), 8L),
+        )
+        assertEquals(
+            LocalDate.of(2026, 11, 6),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 8, 0), 8L),
+        )
+    }
+
+    @Test
+    fun `a midnight day start follows the calendar`() {
+        assertEquals(
+            LocalDate.of(2026, 11, 6),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 0, 0), 0L),
+        )
+        assertEquals(
+            LocalDate.of(2026, 11, 5),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 5, 23, 59), 0L),
+        )
+    }
+
+    @Test
+    fun `the day start hour is clamped to the supported range`() {
+        assertEquals(
+            LocalDate.of(2026, 11, 5),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 11, 59), 18L),
+        )
+        assertEquals(
+            LocalDate.of(2026, 11, 6),
+            PlaylistSchedule.scheduleDate(LocalDateTime.of(2026, 11, 6, 0, 0), -3L),
+        )
+    }
+
+    @Test
+    fun `the next check lands on the configured boundary`() {
+        assertEquals(
+            LocalDateTime.of(2026, 11, 6, 8, 0),
+            PlaylistSchedule.nextBoundary(LocalDateTime.of(2026, 11, 6, 7, 30), 8L),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 11, 7, 8, 0),
+            PlaylistSchedule.nextBoundary(LocalDateTime.of(2026, 11, 6, 9, 0), 8L),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 11, 7, 0, 0),
+            PlaylistSchedule.nextBoundary(LocalDateTime.of(2026, 11, 6, 0, 0), 0L),
+        )
+    }
+
+    @Test
+    fun `the periodic check waits for a boundary that is close`() {
+        val now = LocalDateTime.of(2026, 11, 6, 5, 55)
+
+        assertEquals(5 * 60_000L + 2_000L, PlaylistSchedule.nextCheckDelayMillis(now, 6L))
+    }
+
+    @Test
+    fun `the periodic check falls back to the tick when the boundary is far`() {
+        val now = LocalDateTime.of(2026, 11, 6, 13, 0)
+
+        assertEquals(10 * 60_000L, PlaylistSchedule.nextCheckDelayMillis(now, 6L))
+    }
+
+    @Test
+    fun `weekly refresh waits for the next iso monday`() {
+        val now = LocalDateTime.of(2026, 11, 6, 9, 0)
+
+        assertEquals(
+            LocalDateTime.of(2026, 11, 9, 6, 0),
+            PlaylistSchedule.nextRefresh(now, 6L, PlaylistHorizon.WEEKLY),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 11, 7, 6, 0),
+            PlaylistSchedule.nextRefresh(now, 6L, PlaylistHorizon.DAILY),
+        )
+    }
+
+    @Test
     fun `iso week wraps at the year boundary`() {
         assertEquals("2025-W52", PlaylistSchedule.weeklyStamp(LocalDate.of(2025, 12, 28)))
         assertEquals("2026-W01", PlaylistSchedule.weeklyStamp(LocalDate.of(2025, 12, 29)))
