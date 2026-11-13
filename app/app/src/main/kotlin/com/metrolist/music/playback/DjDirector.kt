@@ -13,8 +13,11 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.metrolist.music.extensions.metadata
+import com.metrolist.music.recommend.AiResolvedConfig
 import com.metrolist.music.recommend.AiTtsClient
 import com.metrolist.music.recommend.DjAiCommentator
+import com.metrolist.music.recommend.DjContextProvider
+import com.metrolist.music.recommend.DjIntroPolicy
 import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjPlaybackPolicy
 import com.metrolist.music.recommend.DjSchedulePolicy
@@ -23,8 +26,10 @@ import com.metrolist.music.recommend.DjSpeechDecision
 import com.metrolist.music.recommend.DjSpeechPolicy
 import com.metrolist.music.recommend.TelemetryBias
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -51,6 +56,9 @@ class DjDirector(
         val sessionId: Int
         val persona: DjPersona?
         val aiEnabled: Boolean
+
+        /** Local text may go straight to a styled TTS provider. */
+        val directTtsEnabled: Boolean
 
         fun player(): ExoPlayer?
 
@@ -79,6 +87,7 @@ class DjDirector(
     private var linksSpoken: Int = 0
     private var prepared: PreparedLink? = null
     private var prepareJob: Job? = null
+    private var pendingIntro: PendingIntro? = null
     private var ducked = false
 
     /** True while the ramp has lowered the track for the voice. */
@@ -97,6 +106,22 @@ class DjDirector(
                 handler.postDelayed(this, TICK_MS)
             }
         }
+
+    /**
+     * Starts the intro's text and audio work before the player finishes
+     * preparing, so the network and the media pipeline do not serialize.
+     * [startSession] consumes the result; nothing is spoken until then.
+     */
+    fun beginIntro(
+        persona: DjPersona,
+        firstTitle: String,
+        firstArtist: String,
+    ) {
+        val request = IntroRequest(persona, firstTitle, firstArtist)
+        if (pendingIntro?.request == request) return
+        pendingIntro?.job?.cancel()
+        pendingIntro = PendingIntro(request, scope.async { buildIntro(request) })
+    }
 
     /** Speaks the intro, then starts the first track once the voice is done. */
     fun startSession(
@@ -143,6 +168,16 @@ class DjDirector(
                 }
             }
         }
+        val request = IntroRequest(persona, firstTitle, firstArtist)
+        val pending = pendingIntro
+        val intro =
+            if (pending?.request == request) {
+                pending.job
+            } else {
+                pending?.job?.cancel()
+                scope.async { buildIntro(request) }
+            }
+        pendingIntro = null
         val fallback =
             DjScript.intro(
                 persona = persona,
@@ -151,18 +186,93 @@ class DjDirector(
                 language = Locale.getDefault().language,
             )
         scope.launch {
-            val line =
-                if (host.aiEnabled) {
-                    kotlinx.coroutines.withTimeoutOrNull(INTRO_AI_TIMEOUT_MS) {
-                        DjAiCommentator.intro(context, persona, firstTitle, firstArtist)
-                    } ?: fallback
-                } else {
-                    fallback
+            val clip =
+                runCatching { intro.await() }.getOrNull()
+                    ?: IntroClip(fallback, null, DjIntroPolicy.Path.LOCAL, 0L, 0L, SystemClock.elapsedRealtime())
+            handler.post {
+                if (host.sessionActive && host.sessionId == token) {
+                    Timber.tag(TAG).i(
+                        "intro timing path=%s textMs=%d ttsMs=%d totalMs=%d audio=%s",
+                        clip.path,
+                        clip.textMs,
+                        clip.ttsMs,
+                        SystemClock.elapsedRealtime() - clip.startedAtMs,
+                        clip.audio != null,
+                    )
+                    speak(clip.text, clip.audio)
                 }
-            val audio = withContext(Dispatchers.IO) { DjAnnouncer.synthesize(context, line) }
-            handler.post { speak(line, audio) }
+            }
         }
     }
+
+    private suspend fun buildIntro(request: IntroRequest): IntroClip {
+        val startedAt = SystemClock.elapsedRealtime()
+        val language = Locale.getDefault().language
+        val fallback =
+            DjScript.intro(
+                persona = request.persona,
+                firstTitle = request.firstTitle,
+                firstArtist = request.firstArtist,
+                language = language,
+            )
+        val contextDeferred = scope.async { fetchContextSummary() }
+        val tts = withContext(Dispatchers.IO) { DjAnnouncer.resolveTtsConfig(context) }
+        val path = DjIntroPolicy.decide(host.directTtsEnabled, host.aiEnabled, tts)
+        if (path == DjIntroPolicy.Path.LOCAL) contextDeferred.cancel()
+        val contextSummary =
+            if (path == DjIntroPolicy.Path.LOCAL) {
+                ""
+            } else {
+                withTimeoutOrNull(DjIntroPolicy.INTRO_CONTEXT_TIMEOUT_MS) { contextDeferred.await() }.orEmpty()
+            }
+        var textMs = 0L
+        val text =
+            when (path) {
+                DjIntroPolicy.Path.DIRECT_TTS -> DjIntroPolicy.composeText(fallback, contextSummary)
+                DjIntroPolicy.Path.CHAT -> {
+                    val local = DjIntroPolicy.composeText(fallback, contextSummary)
+                    val chatStart = SystemClock.elapsedRealtime()
+                    val generated =
+                        DjIntroPolicy.awaitText(DjIntroPolicy.INTRO_CHAT_TIMEOUT_MS, local) {
+                            DjAiCommentator.intro(
+                                context = context,
+                                persona = request.persona,
+                                firstTitle = request.firstTitle,
+                                firstArtist = request.firstArtist,
+                                contextSummary = contextSummary,
+                            )
+                        }
+                    textMs = SystemClock.elapsedRealtime() - chatStart
+                    generated
+                }
+                DjIntroPolicy.Path.LOCAL -> fallback
+            }
+        val style =
+            if (path == DjIntroPolicy.Path.DIRECT_TTS) {
+                DjIntroPolicy.instructions(request.persona, language)
+            } else {
+                null
+            }
+        val ttsStart = SystemClock.elapsedRealtime()
+        val audio = synthesize(tts, text, style)
+        val ttsMs = SystemClock.elapsedRealtime() - ttsStart
+        return IntroClip(text, audio, path, textMs, ttsMs, startedAt)
+    }
+
+    private suspend fun synthesize(
+        config: AiResolvedConfig?,
+        text: String,
+        style: String?,
+    ): ByteArray? {
+        if (config?.canSpeak != true) return null
+        return runCatching { AiTtsClient.synthesize(config, text, style) }
+            .getOrNull()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+    /** Best effort: a cold cache must not delay the first line. */
+    private suspend fun fetchContextSummary(): String =
+        runCatching { DjContextProvider.summary(context) }.getOrDefault("")
 
     /** Called when the queue or track changed; the next pair is re-planned. */
     fun onTrackStarted() {
@@ -184,6 +294,8 @@ class DjDirector(
     fun onQueueChanged() {
         prepareJob?.cancel()
         prepareJob = null
+        pendingIntro?.job?.cancel()
+        pendingIntro = null
         prepared = null
         announcedPair = null
     }
@@ -202,6 +314,8 @@ class DjDirector(
     fun endSession() {
         prepareJob?.cancel()
         prepareJob = null
+        pendingIntro?.job?.cancel()
+        pendingIntro = null
         prepared = null
         announcedPair = null
         announcer?.shutdown()
@@ -374,12 +488,15 @@ class DjDirector(
                 plan.current.mediaMetadata.title?.toString(),
                 plan.current.mediaMetadata.artist?.toString(),
             ).joinToString(" - ")
+        val contextDeferred = if (host.aiEnabled) scope.async { fetchContextSummary() } else null
         prepareJob?.cancel()
         prepareJob =
             scope.launch {
                 val chatStart = SystemClock.elapsedRealtime()
                 val ai =
                     if (host.aiEnabled) {
+                        val contextSummary =
+                            withTimeoutOrNull(LINK_CONTEXT_TIMEOUT_MS) { contextDeferred?.await() }.orEmpty()
                         withTimeoutOrNull(CHAT_TIMEOUT_MS) {
                             DjAiCommentator.comment(
                                 context = context,
@@ -388,6 +505,7 @@ class DjDirector(
                                 nextTitle = plan.nextTitle,
                                 nextArtist = plan.nextArtist,
                                 fact = plan.fact,
+                                contextSummary = contextSummary,
                             )
                         }
                     } else {
@@ -590,6 +708,26 @@ class DjDirector(
         val fallback: String,
     )
 
+    private data class IntroRequest(
+        val persona: DjPersona,
+        val firstTitle: String,
+        val firstArtist: String,
+    )
+
+    private data class PendingIntro(
+        val request: IntroRequest,
+        val job: Deferred<IntroClip>,
+    )
+
+    private data class IntroClip(
+        val text: String,
+        val audio: ByteArray?,
+        val path: DjIntroPolicy.Path,
+        val textMs: Long,
+        val ttsMs: Long,
+        val startedAtMs: Long,
+    )
+
     private data class PreparedLink(
         val pair: String,
         val text: String,
@@ -618,7 +756,7 @@ class DjDirector(
         const val TAG = "RadioStarDj"
         const val TICK_MS = 2_000L
         const val CHAT_TIMEOUT_MS = 25_000L
-        const val INTRO_AI_TIMEOUT_MS = 5_000L
+        const val LINK_CONTEXT_TIMEOUT_MS = 2_000L
         const val INTRO_WATCHDOG_MS = 20_000L
     }
 }

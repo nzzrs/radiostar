@@ -117,12 +117,14 @@ import com.metrolist.music.constants.RadioStarDjContextCityKey
 import com.metrolist.music.constants.RadioStarDjContextKey
 import com.metrolist.music.constants.RadioStarDjContextNewsKey
 import com.metrolist.music.constants.RadioStarDjContextWeatherKey
+import com.metrolist.music.constants.RadioStarDjDirectTtsKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
 import com.metrolist.music.constants.RadioStarDjLikelyKey
 import com.metrolist.music.recommend.DjConfig
 import com.metrolist.music.recommend.DjPresence
+import com.metrolist.music.recommend.DjPrewarm
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
@@ -697,12 +699,17 @@ fun HomeScreen(
     var djFar by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
     var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
     var showDjPanel by remember { mutableStateOf(false) }
+    val prewarmContext = LocalContext.current
+    LaunchedEffect(showDjPanel) {
+        if (showDjPanel) DjPrewarm.warm(prewarmContext)
+    }
     var djStartError by remember { mutableStateOf<String?>(null) }
     var djAi by rememberPreference(RadioStarDjAiKey, false)
     var djContext by rememberPreference(RadioStarDjContextKey, true)
     var djContextWeather by rememberPreference(RadioStarDjContextWeatherKey, false)
     var djContextNews by rememberPreference(RadioStarDjContextNewsKey, false)
     var djContextCity by rememberPreference(RadioStarDjContextCityKey, "")
+    var djDirectTts by rememberPreference(RadioStarDjDirectTtsKey, true)
     var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
     val artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
@@ -2765,6 +2772,8 @@ fun HomeScreen(
             onWeatherEnabledChange = { djContextWeather = it },
             onNewsEnabledChange = { djContextNews = it },
             onCityChange = { djContextCity = it },
+            directTtsEnabled = djDirectTts,
+            onDirectTtsChange = { djDirectTts = it },
         )
     }
 }

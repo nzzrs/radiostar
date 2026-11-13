@@ -205,6 +205,8 @@ fun DjPanelDialog(
     onWeatherEnabledChange: (Boolean) -> Unit = {},
     onNewsEnabledChange: (Boolean) -> Unit = {},
     onCityChange: (String) -> Unit = {},
+    directTtsEnabled: Boolean = true,
+    onDirectTtsChange: (Boolean) -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -256,6 +258,8 @@ fun DjPanelDialog(
                         onWeatherEnabledChange = onWeatherEnabledChange,
                         onNewsEnabledChange = onNewsEnabledChange,
                         onCityChange = onCityChange,
+                        directTtsEnabled = directTtsEnabled,
+                        onDirectTtsChange = onDirectTtsChange,
                     )
                     Spacer(Modifier.height(16.dp))
                 }
@@ -302,6 +306,8 @@ fun DjSettingsBody(
     onWeatherEnabledChange: (Boolean) -> Unit = {},
     onNewsEnabledChange: (Boolean) -> Unit = {},
     onCityChange: (String) -> Unit = {},
+    directTtsEnabled: Boolean = true,
+    onDirectTtsChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     var hasCoarseLocation by remember {
@@ -412,6 +418,18 @@ fun DjSettingsBody(
                         title = { Text(stringResource(R.string.dj_ai_provider)) },
                         description = { Text(stringResource(R.string.dj_ai_provider_desc)) },
                         onClick = onOpenAiProviders,
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.speed),
+                        title = { Text(stringResource(R.string.dj_direct_tts)) },
+                        description = { Text(stringResource(R.string.dj_direct_tts_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = directTtsEnabled,
+                                onCheckedChange = onDirectTtsChange,
+                            )
+                        },
+                        onClick = { onDirectTtsChange(!directTtsEnabled) },
                     ),
                 ),
         )

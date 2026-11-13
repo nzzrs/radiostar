@@ -13,7 +13,9 @@ import com.metrolist.music.constants.AiTtsGeminiModelSuggestions
 import com.metrolist.music.constants.AiTtsModelSuggestions
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlinx.coroutines.Dispatchers
@@ -108,15 +110,53 @@ object AiTtsClient {
         }
     }
 
-    suspend fun synthesize(config: AiResolvedConfig, text: String): ByteArray? =
+    /**
+     * [style] is voice direction, never spoken. OpenAI reads it from the
+     * `instructions` field (gpt-4o-mini-tts and newer); Gemini TTS receives it
+     * as part of the read-aloud prompt.
+     */
+    suspend fun synthesize(
+        config: AiResolvedConfig,
+        text: String,
+        style: String? = null,
+    ): ByteArray? =
         withContext(Dispatchers.IO) {
             if (!config.canSpeak || text.isBlank()) return@withContext null
             if (isGemini(config)) {
-                synthesizeGemini(config, text)
+                synthesizeGemini(config, text, style)
             } else {
-                synthesizeOpenAi(config, text)
+                synthesizeOpenAi(config, text, style)
             }
         }
+
+    /**
+     * Pays the request setup before the first line needs it: resolves the
+     * endpoint and warms DNS. It never synthesizes audio, so no clip is held
+     * in memory and no tokens are spent.
+     */
+    suspend fun prewarm(config: AiResolvedConfig?) =
+        withContext(Dispatchers.IO) {
+            val target = requestTarget(config) ?: return@withContext
+            val warm = warmedTargets.add(target)
+            if (!warm) return@withContext
+            runCatching {
+                val host = URL(target).host
+                if (host.isNotBlank()) InetAddress.getByName(host)
+            }.onFailure { Timber.tag(TAG).d(it, "tts prewarm failed") }
+        }
+
+    /** Request URL for [config], or null when speech is not configured. */
+    fun requestTarget(config: AiResolvedConfig?): String? {
+        if (config == null || !config.canSpeak) return null
+        return if (isGemini(config)) {
+            geminiUrl(config)
+        } else {
+            AiProviderCatalog.speechUrl(config.baseUrl).takeIf { it.isNotBlank() }
+        }
+    }
+
+    fun supportsStyleInstructions(config: AiResolvedConfig): Boolean =
+        DjIntroPolicy.supportsStyledSpeech(config)
 
     /**
      * Lists voices. Gemini has a Voice Library endpoint and a fixed prebuilt
@@ -151,7 +191,11 @@ object AiTtsClient {
             emptyList()
         }
 
-    private fun synthesizeOpenAi(config: AiResolvedConfig, text: String): ByteArray? {
+    private fun synthesizeOpenAi(
+        config: AiResolvedConfig,
+        text: String,
+        style: String?,
+    ): ByteArray? {
         val url = AiProviderCatalog.speechUrl(config.baseUrl)
         if (url.isBlank()) return null
         val payload =
@@ -160,6 +204,9 @@ object AiTtsClient {
                 put("input", text)
                 put("voice", config.ttsVoice)
                 put("response_format", "mp3")
+                if (!style.isNullOrBlank() && supportsStyleInstructions(config)) {
+                    put("instructions", style)
+                }
             }
         return runCatching {
             val connection = openPost(url, config.apiKey, bearer = true)
@@ -176,14 +223,26 @@ object AiTtsClient {
         }
     }
 
-    private fun synthesizeGemini(config: AiResolvedConfig, text: String): ByteArray? {
-        val model = config.model.removePrefix("models/").trim()
-        if (model.isBlank()) return null
-        val url = "${geminiRoot(config.baseUrl)}/models/$model:generateContent"
+    private fun synthesizeGemini(
+        config: AiResolvedConfig,
+        text: String,
+        style: String?,
+    ): ByteArray? {
+        val url = geminiUrl(config) ?: return null
         val voice = normalizeVoice("Gemini", config.ttsVoice)
         // Gemini TTS is an LLM: without a read-aloud instruction it may answer
-        // with text instead of audio.
-        val prompt = "Read aloud the following text exactly, with a natural radio DJ voice. Do not add or omit words:\n\n$text"
+        // with text instead of audio. The style/persona rides in the prompt.
+        val direction = style?.trim().orEmpty()
+        val prompt =
+            buildString {
+                if (direction.isNotEmpty()) {
+                    append(direction)
+                    append("\n\n")
+                }
+                append("Read aloud the following text exactly, with a natural radio DJ voice. ")
+                append("Do not add or omit words:\n\n")
+                append(text)
+            }
         val payload =
             JSONObject().apply {
                 put(
@@ -326,6 +385,12 @@ object AiTtsClient {
         return result.sorted()
     }
 
+    private fun geminiUrl(config: AiResolvedConfig): String? {
+        val model = config.model.removePrefix("models/").trim()
+        if (model.isBlank()) return null
+        return "${geminiRoot(config.baseUrl)}/models/$model:generateContent"
+    }
+
     private fun geminiRoot(baseUrl: String): String {
         val base = baseUrl.trim().trimEnd('/')
         val beta = base.indexOf("/v1beta")
@@ -371,6 +436,8 @@ object AiTtsClient {
         runCatching {
             JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()
         }.getOrDefault("").take(200)
+
+    private val warmedTargets = ConcurrentHashMap.newKeySet<String>()
 
     private const val TAG = "RadioStarTts"
 }

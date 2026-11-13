@@ -422,6 +422,8 @@
     <string name="dj_ai_desc">Spoken links between tracks use your AI provider.</string>
     <string name="dj_ai_provider">AI provider</string>
     <string name="dj_ai_provider_desc">Choose the provider and model for commentary.</string>
+    <string name="dj_direct_tts">Speak the intro right away</string>
+    <string name="dj_direct_tts_desc">Skip the chat wait at the start: send the DJ\'s local intro to a styled voice. Turn off to write the intro with the chat model first.</string>
     <string name="dj_section_context">Time &amp; place</string>
     <string name="dj_context_enable">Use local context</string>
     <string name="dj_context_enable_desc">Let the DJ mention the time, your city, weather and headlines.</string>
