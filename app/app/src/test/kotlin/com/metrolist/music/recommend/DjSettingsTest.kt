@@ -22,7 +22,7 @@ class DjSettingsTest {
 
     @Test
     fun `personas have a fruit emoji and a non-empty personality`() {
-        DjPersona.values().forEach { persona ->
+        DjPersona.builtins.forEach { persona ->
             assertTrue(persona.emoji.isNotBlank())
             assertTrue(persona.displayName.startsWith("DJ "))
             assertTrue(persona.tagline.isNotBlank())
@@ -31,7 +31,7 @@ class DjSettingsTest {
 
     @Test
     fun `persona voices stay inside the TTS ranges`() {
-        DjPersona.values().forEach { persona ->
+        DjPersona.builtins.forEach { persona ->
             assertTrue(persona.pitch in 0.5f..1.5f)
             assertTrue(persona.rate in 0.5f..1.5f)
         }

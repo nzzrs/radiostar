@@ -41,7 +41,7 @@ object DjScript {
         val artist = clean(firstArtist)
         val track = if (artist.isEmpty()) title else "$title de $artist"
         val trackEn = if (artist.isEmpty()) title else "$title by $artist"
-        val name = persona.displayName.removePrefix("DJ ")
+        val name = persona.shortName
         val variants =
             if (language.lowercase().startsWith("es")) {
                 listOf(
@@ -99,7 +99,7 @@ object DjScript {
         val tracks = trackNumber.coerceAtLeast(1)
         val minutes = elapsedMinutes.coerceAtLeast(1L)
         val artists = distinctArtists.coerceAtLeast(1)
-        val name = persona.displayName.removePrefix("DJ ")
+        val name = persona.shortName
         val variants =
             if (language.lowercase().startsWith("es")) {
                 listOf(
