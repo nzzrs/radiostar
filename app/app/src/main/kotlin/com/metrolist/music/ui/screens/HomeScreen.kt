@@ -125,6 +125,7 @@ import com.metrolist.music.constants.RadioStarDjLikelyKey
 import com.metrolist.music.recommend.DjConfig
 import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.recommend.DjPrewarm
+import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
@@ -718,6 +719,13 @@ fun HomeScreen(
     val djPlayerNotReadyMessage = stringResource(R.string.radiostar_dj_player_not_ready)
     val djDisabledMessage = stringResource(R.string.radiostar_dj_disabled)
     val djStartFailedMessage = stringResource(R.string.radiostar_dj_start_failed)
+    val djRequestQueuedMessage = stringResource(R.string.radiostar_dj_request_queued)
+    LaunchedEffect(Unit) {
+        DjSessionState.userRequests.collect { request ->
+            Timber.tag("RadioStarDj").i("user request queued id=%s", request.id)
+            snackbarHostState.showSnackbar(djRequestQueuedMessage)
+        }
+    }
     val startDj: (DjConfig) -> Unit = { config ->
         djScope.launch {
             djStartError = null

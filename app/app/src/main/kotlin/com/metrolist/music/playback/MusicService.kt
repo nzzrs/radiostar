@@ -2169,11 +2169,11 @@ class MusicService :
     }
 
     fun playNext(items: List<MediaItem>) {
-        djDirector.onQueueChanged()
         // If queue is empty or player is idle, play immediately instead
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
             player.setMediaItems(items)
             player.prepare()
+            djDirector.onQueueChanged()
             if (castConnectionHandler?.isCasting?.value != true) {
                 player.play()
             }
@@ -2260,10 +2260,10 @@ class MusicService :
                 player.setShuffleOrder(DefaultShuffleOrder(finalOrder, System.currentTimeMillis()))
             }
         }
+        djDirector.onQueueChanged()
     }
 
     fun addToQueue(items: List<MediaItem>) {
-        djDirector.onQueueChanged()
         if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
             val itemIds = items.map { it.mediaId }.toSet()
             val indicesToRemove = mutableListOf<Int>()
@@ -2287,6 +2287,7 @@ class MusicService :
             applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
         }
         player.prepare()
+        djDirector.onQueueChanged()
     }
 
     fun toggleLibrary() {
@@ -2933,6 +2934,10 @@ class MusicService :
         }
         if (events.containsAny(EVENT_TIMELINE_CHANGED, EVENT_POSITION_DISCONTINUITY)) {
             currentMediaMetadata.value = player.currentMetadata
+        }
+        if (events.containsAny(EVENT_TIMELINE_CHANGED) && radioStarDj) {
+            // User edits (add, play next, remove) reach the DJ through the same hook.
+            djDirector.onQueueChanged()
         }
 
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {

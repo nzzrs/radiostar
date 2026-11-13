@@ -115,4 +115,47 @@ class DjScriptTest {
         val second = DjScript.observation(DjPersona.LEMON, 6, 18, 4, "en")
         assertTrue(first != second)
     }
+
+    @Test
+    fun `a request is acknowledged in spanish`() {
+        val line = DjScript.request("ANSIEDAD", "Fuerza Regida", "es-MX")
+        assertTrue(line.contains("Pediste"))
+        assertTrue(line.contains("ANSIEDAD"))
+        assertTrue(line.contains("Fuerza Regida"))
+        assertTrue(line.length <= 180)
+    }
+
+    @Test
+    fun `a request is acknowledged in english`() {
+        val line = DjScript.request("ANSIEDAD", "Fuerza Regida", "en-US")
+        assertTrue(line.contains("You asked for"))
+        assertTrue(line.contains("ANSIEDAD"))
+        assertTrue(line.contains("Fuerza Regida"))
+    }
+
+    @Test
+    fun `a request without an artist still reads well`() {
+        assertEquals("Pediste ANSIEDAD. Aquí va.", DjScript.request("ANSIEDAD", "", "es"))
+        assertEquals("You asked for ANSIEDAD. Here it is.", DjScript.request("ANSIEDAD", " ", "en"))
+    }
+
+    @Test
+    fun `a request without a title is silent`() {
+        assertEquals("", DjScript.request("  ", "Fuerza Regida", "es"))
+    }
+
+    @Test
+    fun `the request note follows the listener language`() {
+        assertEquals(" By your request.", DjScript.requestNote("en-US"))
+        assertEquals(" A petición tuya.", DjScript.requestNote("es-MX"))
+        assertFalse(DjScript.requestNote("en") == DjScript.requestNote("es"))
+    }
+
+    @Test
+    fun `a request line is not the plain announcement`() {
+        assertFalse(
+            DjScript.request("Uno", "Artista", "es") ==
+                DjScript.announcement("Uno", "Artista", "es"),
+        )
+    }
 }
