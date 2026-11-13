@@ -14,6 +14,7 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
+import com.metrolist.music.constants.RadioStarProfilesKey
 import com.metrolist.music.constants.RadioStarServerKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.ArtistEntity
@@ -32,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import timber.log.Timber
 
 data class GoBeyondSectionFeed(
@@ -244,11 +246,6 @@ class GoBeyondRepository
                 val selection = GoBeyondResolver.resolve(rawSelection)
                 require(!selection.isBlank()) { "empty Go Beyond selection" }
                 val playlistId = selection.stableId()
-                val foundPool = search(selection)
-                if (foundPool.isEmpty()) {
-                    error("No tracks found for ${selection.displayTitle()}")
-                }
-                val found = foundPool.map { it.song }
 
                 val events = runCatching { TelemetryStore.load(context) }.getOrDefault(emptyList())
                 val insights = TelemetryInsights.fromEvents(events)
@@ -273,6 +270,15 @@ class GoBeyondRepository
                         .filter { it.type == TelemetryEventType.LIKE }
                         .mapNotNull { it.songId }
                         .toSet()
+                val profiles = runCatching { loadProfiles() }.getOrDefault(emptyMap())
+                val historyIds = terminal.sortedByDescending { it.at }.mapNotNull { it.songId }
+                val seedArtists = seedArtistNames(insights, terminal)
+
+                val foundPool = search(selection, profiles, seedArtists, historyIds)
+                if (foundPool.isEmpty()) {
+                    error("No tracks found for ${selection.displayTitle()}")
+                }
+                val found = foundPool.map { it.song }
 
                 var promptVector: DoubleArray? = null
                 var vectors: List<FloatArray>? = null
@@ -309,6 +315,7 @@ class GoBeyondRepository
                             targetScore = foundPool[index].targetScore,
                         )
                     }
+                val sonicTarget = GoBeyondSonic.targetFor(selection)
                 val rankContext =
                     GoBeyondRankContext(
                         bias = TelemetryTaste.fromEvents(events),
@@ -316,6 +323,9 @@ class GoBeyondRepository
                         promptVector = promptVector,
                         promptTerms = GoBeyondResolver.colorPromptTerms(selection.color),
                         literalTerms = GoBeyondResolver.literalColorTerms(selection.color),
+                        literalMoodTerms = GoBeyondSonic.literalMoodTerms(selection.mood),
+                        profiles = profiles,
+                        sonicTarget = sonicTarget,
                         heardIds = heardIds,
                         recentIds = recentIds,
                         skippedIds = skippedIds,
@@ -324,18 +334,19 @@ class GoBeyondRepository
                         limit = SLATE_SIZE,
                     )
                 val chosen =
-                    GoBeyondRanker
-                        .rank(candidates, rankContext)
+                    GoBeyondSonic
+                        .order(GoBeyondRanker.rank(candidates, rankContext), profiles, sonicTarget)
                         .mapNotNull { byId[it.candidate.id] }
                 if (chosen.isEmpty()) error("No tracks survived ranking for ${selection.displayTitle()}")
 
                 writePlaylist(playlistId, selection, chosen)
                 rememberSelection(playlistId, selection)
                 Timber.tag(TAG).i(
-                    "generated %s tracks=%d events=%d",
+                    "generated %s tracks=%d events=%d profiles=%d",
                     selection.displayTitle(),
                     chosen.size,
                     events.size,
+                    profiles.size,
                 )
                 playlistId
             }
@@ -355,7 +366,12 @@ class GoBeyondRepository
 
         fun isGoBeyondPlaylist(playlistId: String): Boolean = playlistId.startsWith(ID_PREFIX)
 
-        private suspend fun search(selection: GoBeyondSelection): List<PooledSong> {
+        private suspend fun search(
+            selection: GoBeyondSelection,
+            profiles: Map<String, AudioProfile> = emptyMap(),
+            seedArtists: List<String> = emptyList(),
+            historyIds: List<String> = emptyList(),
+        ): List<PooledSong> {
             val merged = LinkedHashMap<String, PooledSong>()
             val artist = selection.artist?.trim()?.takeIf(String::isNotBlank)
             if (artist != null) {
@@ -431,24 +447,59 @@ class GoBeyondRepository
                     .take(MAX_CANDIDATES)
             }
 
-            for (query in selection.searchQueries().take(GENERAL_QUERIES)) {
+            for (query in selection.searchQueries(seedArtists).take(GENERAL_QUERIES)) {
                 addSongResults(query = query, targetScore = 0.60, merged = merged)
             }
-            if (merged.size < RADIO_TRIGGER) {
-                merged.values.take(RADIO_SEEDS).forEach { seed ->
-                    val result =
-                        runCatching {
-                            YouTube.next(WatchEndpoint(videoId = seed.song.id)).getOrNull()
-                        }.getOrNull() ?: return@forEach
-                    result.items
-                        .asSequence()
-                        .filterIsInstance<SongItem>()
-                        .filter(::isUsableSong)
-                        .take(40)
-                        .forEach { song -> merge(merged, song, 0.35) }
-                }
+            val sonicTarget = GoBeyondSonic.targetFor(selection)
+            val sonicSeeds = matchingRadioSeeds(historyIds, profiles, sonicTarget)
+            if (sonicSeeds.isNotEmpty() || merged.size < RADIO_TRIGGER) {
+                val seeds =
+                    sonicSeeds.ifEmpty {
+                        merged.values.take(RADIO_SEEDS).map { it.song.id }
+                    }
+                seeds.forEach { seedId -> expandRadio(seedId, merged) }
             }
             return constrainToGenre(selection, merged.values.toList()).take(MAX_CANDIDATES)
+        }
+
+        /**
+         * History tracks whose already-measured BPM/RMS/key fits the target.
+         * They are better radio seeds than a raw search hit because the phone
+         * knows they belong to the requested sound.
+         */
+        private fun matchingRadioSeeds(
+            historyIds: List<String>,
+            profiles: Map<String, AudioProfile>,
+            target: SonicTarget?,
+        ): List<String> {
+            if (target == null || profiles.isEmpty()) return emptyList()
+            return historyIds
+                .asSequence()
+                .distinct()
+                .mapNotNull { id ->
+                    GoBeyondSonic.score(profiles[id], target)?.let { fit -> id to fit }
+                }
+                .filter { (_, fit) -> fit >= GoBeyondSonic.SEED_THRESHOLD }
+                .sortedByDescending { (_, fit) -> fit }
+                .take(RADIO_SEEDS)
+                .map { (id, _) -> id }
+                .toList()
+        }
+
+        private suspend fun expandRadio(
+            seedId: String,
+            merged: LinkedHashMap<String, PooledSong>,
+        ) {
+            val result =
+                runCatching {
+                    YouTube.next(WatchEndpoint(videoId = seedId)).getOrNull()
+                }.getOrNull() ?: return
+            result.items
+                .asSequence()
+                .filterIsInstance<SongItem>()
+                .filter(::isUsableSong)
+                .take(40)
+                .forEach { song -> merge(merged, song, 0.35) }
         }
 
         /**
@@ -668,6 +719,52 @@ class GoBeyondRepository
                     ?.takeIf { it.isNotEmpty() }
         }
 
+        /** Artists the listener already plays, used only to widen a mood search. */
+        private fun seedArtistNames(
+            insights: TelemetryInsights,
+            events: List<TelemetryStore.Event>,
+        ): List<String> {
+            val names = LinkedHashSet<String>()
+            insights.topArtists.forEach { artist -> names += artist.name }
+            events
+                .sortedByDescending { it.at }
+                .mapNotNull { it.artist }
+                .forEach(names::add)
+            return names
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .take(SEED_ARTISTS)
+                .toList()
+        }
+
+        /** BPM/RMS/key the audio tap already persisted for played tracks. */
+        private suspend fun loadProfiles(): Map<String, AudioProfile> {
+            val text = context.dataStore.data.first()[RadioStarProfilesKey] ?: return emptyMap()
+            return runCatching {
+                val root = JSONObject(text)
+                val result = HashMap<String, AudioProfile>()
+                root.keys().forEach { id ->
+                    val item = root.getJSONObject(id)
+                    result[id] =
+                        AudioProfile(
+                            bpm = if (item.has("bpm")) item.getDouble("bpm") else null,
+                            key =
+                                if (item.has("root")) {
+                                    MusicalKey(item.getInt("root"), item.optBoolean("minor"))
+                                } else {
+                                    null
+                                },
+                            rms = if (item.has("rms")) item.getDouble("rms").toFloat() else null,
+                        )
+                }
+                result
+            }.getOrElse {
+                Timber.tag(TAG).w(it, "bad profile store")
+                emptyMap()
+            }
+        }
+
         private fun sectionFeed(
             section: GoBeyondSection,
             title: String,
@@ -737,6 +834,7 @@ class GoBeyondRepository
             const val MAX_CANDIDATES = 120
             const val RADIO_TRIGGER = 60
             const val RADIO_SEEDS = 2
+            const val SEED_ARTISTS = 2
             const val ARTIST_QUERIES = 6
             const val COUNTRY_PLAYLIST_QUERIES = 2
             const val COUNTRY_SONG_QUERIES = 5

@@ -55,8 +55,8 @@ class GoBeyondCatalogTest {
         assertTrue(query.contains("Shoegaze"))
         assertTrue(query.contains("1980s"))
         assertFalse(query.contains("Purple"))
-        assertTrue(query.contains("Dreamy"))
-        assertTrue(selection.searchQueries().any { it.contains("dreamy", ignoreCase = true) })
+        assertFalse(query.contains("Dreamy"))
+        assertTrue(selection.searchQueries().any { it.contains("psychedelic", ignoreCase = true) })
         assertTrue(selection.semanticPrompt().contains("purple"))
         assertEquals(
             listOf("Shoegaze", "1980s", "Purple", "Dreamy"),
