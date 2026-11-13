@@ -34,6 +34,7 @@ import com.metrolist.music.constants.RadioStarDjContextCityKey
 import com.metrolist.music.constants.RadioStarDjContextKey
 import com.metrolist.music.constants.RadioStarDjContextNewsKey
 import com.metrolist.music.constants.RadioStarDjContextWeatherKey
+import com.metrolist.music.constants.RadioStarDjDirectTtsKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
@@ -62,6 +63,7 @@ fun DjSettingsScreen(navController: NavController) {
     var weatherEnabled by rememberPreference(RadioStarDjContextWeatherKey, false)
     var newsEnabled by rememberPreference(RadioStarDjContextNewsKey, false)
     var contextCity by rememberPreference(RadioStarDjContextCityKey, "")
+    var directTts by rememberPreference(RadioStarDjDirectTtsKey, true)
     val config = DjConfig(persona = djPersonas.library.selected, known = known, far = far, likely = likely)
 
     Column(
@@ -119,6 +121,8 @@ fun DjSettingsScreen(navController: NavController) {
             onWeatherEnabledChange = { weatherEnabled = it },
             onNewsEnabledChange = { newsEnabled = it },
             onCityChange = { contextCity = it },
+            directTtsEnabled = directTts,
+            onDirectTtsChange = { directTts = it },
         )
 
         Spacer(Modifier.height(24.dp))

@@ -11,6 +11,12 @@ import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.LocationManager
 import androidx.core.content.ContextCompat
+import androidx.datastore.preferences.core.Preferences
+import com.metrolist.music.constants.RadioStarDjContextCityKey
+import com.metrolist.music.constants.RadioStarDjContextKey
+import com.metrolist.music.constants.RadioStarDjContextNewsKey
+import com.metrolist.music.constants.RadioStarDjContextWeatherKey
+import com.metrolist.music.utils.dataStore
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -19,6 +25,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /** Caller-supplied preferences so the provider stays free of DataStore. */
@@ -157,6 +164,33 @@ class DjContextProvider(
             val appContext = context.applicationContext
             return DjContextProvider(cityLocator = LocationCityLocator(appContext))
         }
+
+        /** One provider per process, so the remote caches survive between links. */
+        fun shared(context: Context): DjContextProvider =
+            shared ?: synchronized(this) {
+                shared ?: create(context).also { shared = it }
+            }
+
+        fun fromPreferences(prefs: Preferences): DjContextSettings =
+            DjContextSettings(
+                enabled = prefs[RadioStarDjContextKey] ?: true,
+                weatherEnabled = prefs[RadioStarDjContextWeatherKey] ?: false,
+                newsEnabled = prefs[RadioStarDjContextNewsKey] ?: false,
+                manualCity = prefs[RadioStarDjContextCityKey].orEmpty(),
+            )
+
+        suspend fun settings(context: Context): DjContextSettings =
+            fromPreferences(context.dataStore.data.first())
+
+        /**
+         * Ready-to-inject sentence for the shared provider. Location is only
+         * used when the permission already exists; the manual city is the
+         * fallback, so no permission prompt is tied to this call.
+         */
+        suspend fun summary(context: Context): String =
+            shared(context).summary(settings(context))
+
+        @Volatile private var shared: DjContextProvider? = null
 
         private fun httpGet(url: String): String? =
             runCatching {

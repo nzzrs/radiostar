@@ -214,6 +214,7 @@ import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import androidx.datastore.preferences.core.edit
 import com.metrolist.music.constants.RadioStarDjAiKey
+import com.metrolist.music.constants.RadioStarDjDirectTtsKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarProfilesKey
 import com.metrolist.music.recommend.AudioFeatures
@@ -468,6 +469,7 @@ class MusicService :
     @Volatile private var aiDjEnabled = true
     @Volatile private var djSessionId = 0
     @Volatile private var djAiEnabled = false
+    @Volatile private var djDirectTts = true
     private val djHandler = Handler(Looper.getMainLooper())
     private var djTickerStarted = false
     @Volatile private var djPersona: DjPersona? = null
@@ -478,6 +480,7 @@ class MusicService :
             override val sessionId: Int get() = djSessionId
             override val persona: DjPersona? get() = this@MusicService.djPersona
             override val aiEnabled: Boolean get() = djAiEnabled
+            override val directTtsEnabled: Boolean get() = djDirectTts
 
             override fun player(): ExoPlayer? = if (this@MusicService::player.isInitialized) player else null
 
@@ -4289,6 +4292,12 @@ class MusicService :
         return withContext(Dispatchers.Main) {
             try {
                 val sessionId = ++djSessionId
+                val first = items.firstOrNull()?.mediaMetadata
+                val firstTitle = first?.title?.toString().orEmpty()
+                val firstArtist = first?.artist?.toString().orEmpty()
+                // The intro's text and audio run while the player sets up the
+                // queue, so the first line is ready as soon as the queue is.
+                djDirector.beginIntro(persona, firstTitle, firstArtist)
                 player.stop()
                 player.setPauseAtEndOfMediaItems(false)
                 player.playWhenReady = false
@@ -4305,11 +4314,10 @@ class MusicService :
                 updateNotification()
                 DjSessionState.speaking(persona)
                 DjSessionState.requestPlayerOpen()
-                val first = items.firstOrNull()?.mediaMetadata
                 djDirector.startSession(
                     persona = persona,
-                    firstTitle = first?.title?.toString().orEmpty(),
-                    firstArtist = first?.artist?.toString().orEmpty(),
+                    firstTitle = firstTitle,
+                    firstArtist = firstArtist,
                 )
                 scope.launch(Dispatchers.IO) {
                     val loaded = runCatching { TelemetryTaste.load(this@MusicService) }.getOrDefault(TelemetryBias.EMPTY)
@@ -4343,6 +4351,7 @@ class MusicService :
             dataStore.data.collect { prefs ->
                 aiDjEnabled = prefs[RadioStarDjKey] ?: true
                 djAiEnabled = prefs[RadioStarDjAiKey] ?: false
+                djDirectTts = prefs[RadioStarDjDirectTtsKey] ?: true
                 if (!aiDjEnabled) endDjSession()
             }
         }
