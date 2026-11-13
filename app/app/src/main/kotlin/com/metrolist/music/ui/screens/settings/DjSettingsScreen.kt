@@ -38,14 +38,13 @@ import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
 import com.metrolist.music.constants.RadioStarDjLikelyKey
-import com.metrolist.music.constants.RadioStarDjPersonaKey
 import com.metrolist.music.recommend.DjConfig
-import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.screens.DjSettingsBody
+import com.metrolist.music.ui.screens.rememberDjPersonaPreferences
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
@@ -55,7 +54,7 @@ import com.metrolist.music.utils.rememberPreference
 fun DjSettingsScreen(navController: NavController) {
     var enabled by rememberPreference(RadioStarDjKey, true)
     var aiEnabled by rememberPreference(RadioStarDjAiKey, false)
-    var persona by rememberEnumPreference(RadioStarDjPersonaKey, DjPersona.CHERRY)
+    val djPersonas = rememberDjPersonaPreferences()
     var known by rememberEnumPreference(RadioStarDjKnownKey, DjPresence.SOMETIMES)
     var far by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
     var likely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
@@ -63,7 +62,7 @@ fun DjSettingsScreen(navController: NavController) {
     var weatherEnabled by rememberPreference(RadioStarDjContextWeatherKey, false)
     var newsEnabled by rememberPreference(RadioStarDjContextNewsKey, false)
     var contextCity by rememberPreference(RadioStarDjContextCityKey, "")
-    val config = DjConfig(persona = persona, known = known, far = far, likely = likely)
+    val config = DjConfig(persona = djPersonas.library.selected, known = known, far = far, likely = likely)
 
     Column(
         Modifier
@@ -100,10 +99,13 @@ fun DjSettingsScreen(navController: NavController) {
 
         DjSettingsBody(
             config = config,
+            personas = djPersonas.library,
+            onSelectPersona = djPersonas::select,
+            onSavePersona = djPersonas::save,
+            onDeletePersona = djPersonas::delete,
             aiEnabled = aiEnabled,
             onAiChange = { aiEnabled = it },
             onConfigChange = { updated ->
-                persona = updated.persona
                 known = updated.known
                 far = updated.far
                 likely = updated.likely

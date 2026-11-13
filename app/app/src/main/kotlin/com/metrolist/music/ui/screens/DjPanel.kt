@@ -32,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,15 +40,21 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,11 +76,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.metrolist.music.R
+import com.metrolist.music.playback.DjVoicePreview
 import com.metrolist.music.recommend.DjConfig
 import com.metrolist.music.recommend.DjPersona
+import com.metrolist.music.recommend.DjPersonaIssue
+import com.metrolist.music.recommend.DjPersonaLibrary
+import com.metrolist.music.recommend.DjPersonaValidation
 import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
+import java.util.Locale
 
 @Composable
 fun DjHomeCard(
@@ -175,6 +187,10 @@ fun DjHomeCard(
 @Composable
 fun DjPanelDialog(
     config: DjConfig,
+    personas: DjPersonaLibrary,
+    onSelectPersona: (DjPersona) -> Unit,
+    onSavePersona: (DjPersona) -> Unit,
+    onDeletePersona: (DjPersona) -> Unit,
     aiEnabled: Boolean,
     onAiChange: (Boolean) -> Unit,
     onConfigChange: (DjConfig) -> Unit,
@@ -224,6 +240,10 @@ fun DjPanelDialog(
                 ) {
                     DjSettingsBody(
                         config = config,
+                        personas = personas,
+                        onSelectPersona = onSelectPersona,
+                        onSavePersona = onSavePersona,
+                        onDeletePersona = onDeletePersona,
                         aiEnabled = aiEnabled,
                         onAiChange = onAiChange,
                         onConfigChange = onConfigChange,
@@ -266,6 +286,10 @@ fun DjPanelDialog(
 @Composable
 fun DjSettingsBody(
     config: DjConfig,
+    personas: DjPersonaLibrary,
+    onSelectPersona: (DjPersona) -> Unit,
+    onSavePersona: (DjPersona) -> Unit,
+    onDeletePersona: (DjPersona) -> Unit,
     aiEnabled: Boolean,
     onAiChange: (Boolean) -> Unit,
     onConfigChange: (DjConfig) -> Unit,
@@ -296,14 +320,49 @@ fun DjSettingsBody(
             permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
     }
+    var editorOpen by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<DjPersona?>(null) }
+    var pendingDelete by remember { mutableStateOf<DjPersona?>(null) }
     Column(Modifier.fillMaxWidth()) {
         DjPersonaHero(config)
         Spacer(Modifier.height(24.dp))
         DjSection(title = stringResource(R.string.radiostar_dj_personality)) {
             DjPersonaGrid(
+                personas = personas.all,
                 selected = config.persona,
-                onSelect = { onConfigChange(config.copy(persona = it)) },
+                onSelect = onSelectPersona,
             )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        editing = null
+                        editorOpen = true
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.radiostar_dj_create))
+                }
+                if (!config.persona.builtin) {
+                    TextButton(
+                        onClick = {
+                            editing = config.persona
+                            editorOpen = true
+                        },
+                    ) {
+                        Text(stringResource(R.string.radiostar_dj_edit))
+                    }
+                    TextButton(onClick = { pendingDelete = config.persona }) {
+                        Text(stringResource(R.string.delete))
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            DjVoiceTestButton(persona = config.persona)
         }
         Spacer(Modifier.height(24.dp))
         DjSection(
@@ -397,6 +456,40 @@ fun DjSettingsBody(
             )
         }
     }
+
+    if (editorOpen) {
+        DjPersonaEditorDialog(
+            persona = editing,
+            existingIds = personas.all.map { it.id }.toSet(),
+            onDismiss = { editorOpen = false },
+            onSave = { persona ->
+                onSavePersona(persona)
+                editorOpen = false
+            },
+        )
+    }
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.radiostar_dj_delete_title)) },
+            text = { Text(stringResource(R.string.radiostar_dj_delete_message, target.displayName)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeletePersona(target)
+                        pendingDelete = null
+                    },
+                ) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -437,6 +530,220 @@ private fun DjToggleRow(
         )
     }
 }
+
+@Composable
+private fun DjPersonaEditorDialog(
+    persona: DjPersona?,
+    existingIds: Set<String>,
+    onDismiss: () -> Unit,
+    onSave: (DjPersona) -> Unit,
+) {
+    var name by remember(persona) { mutableStateOf(persona?.displayName.orEmpty()) }
+    var emoji by remember(persona) { mutableStateOf(persona?.emoji ?: "🎧") }
+    var tagline by remember(persona) { mutableStateOf(persona?.tagline.orEmpty()) }
+    var pitch by remember(persona) { mutableStateOf(persona?.pitch ?: 1f) }
+    var rate by remember(persona) { mutableStateOf(persona?.rate ?: 1f) }
+    var issue by remember(persona) { mutableStateOf<DjPersonaIssue?>(null) }
+
+    fun draft(): DjPersona =
+        DjPersona(
+            id = persona?.id ?: DjPersona.newCustomId(name, existingIds),
+            emoji = emoji.trim(),
+            displayName = name.trim(),
+            tagline = tagline.trim(),
+            pitch = pitch,
+            rate = rate,
+        )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(
+                    if (persona == null) R.string.radiostar_dj_editor_new else R.string.radiostar_dj_editor_edit,
+                ),
+            )
+        },
+        text = {
+            Column(
+                modifier =
+                    Modifier
+                        .heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        issue = null
+                    },
+                    label = { Text(stringResource(R.string.radiostar_dj_field_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = emoji,
+                    onValueChange = {
+                        emoji = it.take(16)
+                        issue = null
+                    },
+                    label = { Text(stringResource(R.string.radiostar_dj_field_emoji)) },
+                    supportingText = { Text(stringResource(R.string.radiostar_dj_field_emoji_hint)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = tagline,
+                    onValueChange = {
+                        tagline = it
+                        issue = null
+                    },
+                    label = { Text(stringResource(R.string.radiostar_dj_field_style)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                DjVoiceSlider(
+                    label = stringResource(R.string.radiostar_dj_field_pitch),
+                    value = pitch,
+                    onChange = {
+                        pitch = it
+                        issue = null
+                    },
+                )
+                DjVoiceSlider(
+                    label = stringResource(R.string.radiostar_dj_field_rate),
+                    value = rate,
+                    onChange = {
+                        rate = it
+                        issue = null
+                    },
+                )
+                issue?.let { problem ->
+                    Text(
+                        text = personaIssueText(problem),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                DjVoiceTestButton(persona = draft())
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val candidate = draft()
+                    val problem = DjPersonaValidation.problem(candidate)
+                    if (problem != null) {
+                        issue = problem
+                    } else {
+                        onSave(candidate)
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun DjVoiceSlider(
+    label: String,
+    value: Float,
+    onChange: (Float) -> Unit,
+) {
+    val sliderState =
+        rememberSliderState(
+            value = value,
+            steps = 19,
+            trackRange = 0.5f..1.5f,
+        )
+    LaunchedEffect(value) {
+        if (sliderState.value != value) sliderState.value = value
+    }
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(text = label, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = String.format(Locale.getDefault(), "%.2f", value),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            state = sliderState,
+            onValueChange = onChange,
+        )
+    }
+}
+
+@Composable
+private fun DjVoiceTestButton(
+    persona: DjPersona,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var playing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val sample = stringResource(R.string.radiostar_dj_voice_sample, persona.displayName)
+
+    DisposableEffect(Unit) {
+        onDispose { DjVoicePreview.stop() }
+    }
+
+    Column(modifier = modifier) {
+        OutlinedButton(
+            onClick = {
+                error = null
+                playing = true
+                val failure =
+                    DjVoicePreview.speak(context, persona, sample) {
+                        playing = false
+                    }
+                if (failure != null) {
+                    playing = false
+                    error = failure
+                }
+            },
+            enabled = !playing,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                stringResource(
+                    if (playing) R.string.ai_voice_test_playing else R.string.ai_voice_test,
+                ),
+            )
+        }
+        error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun personaIssueText(issue: DjPersonaIssue): String =
+    stringResource(
+        when (issue) {
+            DjPersonaIssue.NAME -> R.string.radiostar_dj_error_name
+            DjPersonaIssue.EMOJI -> R.string.radiostar_dj_error_emoji
+            DjPersonaIssue.PITCH,
+            DjPersonaIssue.RATE,
+            -> R.string.radiostar_dj_error_voice_range
+        },
+    )
 
 @Composable
 private fun DjPersonaHero(config: DjConfig) {
@@ -495,11 +802,12 @@ private fun DjSection(
 
 @Composable
 private fun DjPersonaGrid(
+    personas: List<DjPersona>,
     selected: DjPersona,
     onSelect: (DjPersona) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        DjPersona.values().toList().chunked(3).forEach { row ->
+        personas.chunked(3).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -538,7 +846,7 @@ private fun DjPersonaGrid(
                                 style = MaterialTheme.typography.headlineSmall,
                             )
                             Text(
-                                text = persona.displayName.removePrefix("DJ "),
+                                text = persona.shortName,
                                 style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,

@@ -33,7 +33,7 @@ object DjAiCommentator {
         val prompt =
             buildString {
                 append("You are ${persona.displayName}, a radio DJ with this personality: ")
-                append(persona.tagline)
+                append(persona.promptStyle)
                 append(". Write one short spoken link, at most 25 words, ")
                 append("in the language of the listener, no markdown or quotes. ")
                 if (!previous.isNullOrBlank()) append("Previous track: $previous. ")
@@ -55,7 +55,7 @@ object DjAiCommentator {
         val prompt =
             buildString {
                 append("You are ${persona.displayName}, a radio DJ with this personality: ")
-                append(persona.tagline)
+                append(persona.promptStyle)
                 append(". Open a listening session in at most 30 words. ")
                 append("Mention the first track: $firstTitle by $firstArtist. ")
                 append("Sound like yourself, not like a generic announcer. ")

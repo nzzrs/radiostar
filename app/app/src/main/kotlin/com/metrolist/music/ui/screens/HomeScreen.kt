@@ -121,9 +121,7 @@ import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
 import com.metrolist.music.constants.RadioStarDjLikelyKey
-import com.metrolist.music.constants.RadioStarDjPersonaKey
 import com.metrolist.music.recommend.DjConfig
-import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.constants.AutoRadioQueueKey
 import com.metrolist.music.constants.GridItemSize
@@ -693,7 +691,8 @@ fun HomeScreen(
     val pinnedSpeedDialItems by viewModel.pinnedSpeedDialItems.collectAsStateWithLifecycle()
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
     val radioStarCards by viewModel.radioStarCards.collectAsStateWithLifecycle()
-    var djPersona by rememberEnumPreference(RadioStarDjPersonaKey, DjPersona.CHERRY)
+    val djPersonas = rememberDjPersonaPreferences()
+    val djPersona = djPersonas.library.selected
     var djKnown by rememberEnumPreference(RadioStarDjKnownKey, DjPresence.SOMETIMES)
     var djFar by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
     var djLikely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
@@ -2738,10 +2737,13 @@ fun HomeScreen(
     if (aiDjEnabled && showDjPanel) {
         DjPanelDialog(
             config = djConfig,
+            personas = djPersonas.library,
+            onSelectPersona = djPersonas::select,
+            onSavePersona = djPersonas::save,
+            onDeletePersona = djPersonas::delete,
             aiEnabled = djAi,
             onAiChange = { djAi = it },
             onConfigChange = { config ->
-                djPersona = config.persona
                 djKnown = config.known
                 djFar = config.far
                 djLikely = config.likely

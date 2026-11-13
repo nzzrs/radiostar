@@ -433,6 +433,22 @@
     <string name="dj_context_city">City</string>
     <string name="dj_context_city_desc">Fallback when location is unavailable or denied.</string>
     <string name="dj_context_city_hint">e.g. Lisbon</string>
+    <string name="radiostar_dj_create">New DJ</string>
+    <string name="radiostar_dj_edit">Edit DJ</string>
+    <string name="radiostar_dj_delete_title">Delete this DJ?</string>
+    <string name="radiostar_dj_delete_message">%1$s will be removed from this device.</string>
+    <string name="radiostar_dj_editor_new">Create a DJ</string>
+    <string name="radiostar_dj_editor_edit">Edit DJ</string>
+    <string name="radiostar_dj_field_name">Name</string>
+    <string name="radiostar_dj_field_emoji">Emoji</string>
+    <string name="radiostar_dj_field_emoji_hint">One or two characters.</string>
+    <string name="radiostar_dj_field_style">Style</string>
+    <string name="radiostar_dj_field_pitch">Pitch</string>
+    <string name="radiostar_dj_field_rate">Speed</string>
+    <string name="radiostar_dj_error_name">Give this DJ a name.</string>
+    <string name="radiostar_dj_error_emoji">Use one or two emoji characters.</string>
+    <string name="radiostar_dj_error_voice_range">Pitch and speed must stay between 0.5 and 1.5.</string>
+    <string name="radiostar_dj_voice_sample">Hi, I\'m %1$s. This is how I sound between your tracks.</string>
 
     <!-- Updater -->
     <string name="updater">Updater</string>
