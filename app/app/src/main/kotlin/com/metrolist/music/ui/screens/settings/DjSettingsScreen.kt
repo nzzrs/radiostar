@@ -30,6 +30,10 @@ import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.RadioStarDjAiKey
+import com.metrolist.music.constants.RadioStarDjContextCityKey
+import com.metrolist.music.constants.RadioStarDjContextKey
+import com.metrolist.music.constants.RadioStarDjContextNewsKey
+import com.metrolist.music.constants.RadioStarDjContextWeatherKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
@@ -55,6 +59,10 @@ fun DjSettingsScreen(navController: NavController) {
     var known by rememberEnumPreference(RadioStarDjKnownKey, DjPresence.SOMETIMES)
     var far by rememberEnumPreference(RadioStarDjFarKey, DjPresence.NEVER)
     var likely by rememberEnumPreference(RadioStarDjLikelyKey, DjPresence.FREQUENT)
+    var contextEnabled by rememberPreference(RadioStarDjContextKey, true)
+    var weatherEnabled by rememberPreference(RadioStarDjContextWeatherKey, false)
+    var newsEnabled by rememberPreference(RadioStarDjContextNewsKey, false)
+    var contextCity by rememberPreference(RadioStarDjContextCityKey, "")
     val config = DjConfig(persona = persona, known = known, far = far, likely = likely)
 
     Column(
@@ -101,6 +109,14 @@ fun DjSettingsScreen(navController: NavController) {
                 likely = updated.likely
             },
             onOpenAiProviders = { navController.navigate("settings/ai/providers") },
+            contextEnabled = contextEnabled,
+            weatherEnabled = weatherEnabled,
+            newsEnabled = newsEnabled,
+            city = contextCity,
+            onContextEnabledChange = { contextEnabled = it },
+            onWeatherEnabledChange = { weatherEnabled = it },
+            onNewsEnabledChange = { newsEnabled = it },
+            onCityChange = { contextCity = it },
         )
 
         Spacer(Modifier.height(24.dp))

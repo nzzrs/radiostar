@@ -113,6 +113,10 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.RadioStarArtworkOpacityKey
 import com.metrolist.music.constants.RadioStarDjAiKey
+import com.metrolist.music.constants.RadioStarDjContextCityKey
+import com.metrolist.music.constants.RadioStarDjContextKey
+import com.metrolist.music.constants.RadioStarDjContextNewsKey
+import com.metrolist.music.constants.RadioStarDjContextWeatherKey
 import com.metrolist.music.constants.RadioStarDjKey
 import com.metrolist.music.constants.RadioStarDjFarKey
 import com.metrolist.music.constants.RadioStarDjKnownKey
@@ -696,6 +700,10 @@ fun HomeScreen(
     var showDjPanel by remember { mutableStateOf(false) }
     var djStartError by remember { mutableStateOf<String?>(null) }
     var djAi by rememberPreference(RadioStarDjAiKey, false)
+    var djContext by rememberPreference(RadioStarDjContextKey, true)
+    var djContextWeather by rememberPreference(RadioStarDjContextWeatherKey, false)
+    var djContextNews by rememberPreference(RadioStarDjContextNewsKey, false)
+    var djContextCity by rememberPreference(RadioStarDjContextCityKey, "")
     var aiDjEnabled by rememberPreference(RadioStarDjKey, true)
     val artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
     val djConfig = DjConfig(djPersona, djKnown, djFar, djLikely)
@@ -2747,6 +2755,14 @@ fun HomeScreen(
                 showDjPanel = false
                 navController.navigate("settings/ai/providers")
             },
+            contextEnabled = djContext,
+            weatherEnabled = djContextWeather,
+            newsEnabled = djContextNews,
+            city = djContextCity,
+            onContextEnabledChange = { djContext = it },
+            onWeatherEnabledChange = { djContextWeather = it },
+            onNewsEnabledChange = { djContextNews = it },
+            onCityChange = { djContextCity = it },
         )
     }
 }

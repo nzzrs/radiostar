@@ -5,6 +5,10 @@
 
 package com.metrolist.music.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -35,6 +39,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -43,12 +48,17 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import com.metrolist.music.R
 import com.metrolist.music.recommend.DjConfig
 import com.metrolist.music.recommend.DjPersona
@@ -170,6 +181,14 @@ fun DjPanelDialog(
     onDismiss: () -> Unit,
     onStart: () -> Unit,
     onOpenAiProviders: () -> Unit,
+    contextEnabled: Boolean = true,
+    weatherEnabled: Boolean = false,
+    newsEnabled: Boolean = false,
+    city: String = "",
+    onContextEnabledChange: (Boolean) -> Unit = {},
+    onWeatherEnabledChange: (Boolean) -> Unit = {},
+    onNewsEnabledChange: (Boolean) -> Unit = {},
+    onCityChange: (String) -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -209,6 +228,14 @@ fun DjPanelDialog(
                         onAiChange = onAiChange,
                         onConfigChange = onConfigChange,
                         onOpenAiProviders = onOpenAiProviders,
+                        contextEnabled = contextEnabled,
+                        weatherEnabled = weatherEnabled,
+                        newsEnabled = newsEnabled,
+                        city = city,
+                        onContextEnabledChange = onContextEnabledChange,
+                        onWeatherEnabledChange = onWeatherEnabledChange,
+                        onNewsEnabledChange = onNewsEnabledChange,
+                        onCityChange = onCityChange,
                     )
                     Spacer(Modifier.height(16.dp))
                 }
@@ -243,7 +270,32 @@ fun DjSettingsBody(
     onAiChange: (Boolean) -> Unit,
     onConfigChange: (DjConfig) -> Unit,
     onOpenAiProviders: () -> Unit,
+    contextEnabled: Boolean = true,
+    weatherEnabled: Boolean = false,
+    newsEnabled: Boolean = false,
+    city: String = "",
+    onContextEnabledChange: (Boolean) -> Unit = {},
+    onWeatherEnabledChange: (Boolean) -> Unit = {},
+    onNewsEnabledChange: (Boolean) -> Unit = {},
+    onCityChange: (String) -> Unit = {},
 ) {
+    val context = LocalContext.current
+    var hasCoarseLocation by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val permissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            hasCoarseLocation = granted
+        }
+    val changeContext: (Boolean) -> Unit = { enabled ->
+        onContextEnabledChange(enabled)
+        if (enabled && !hasCoarseLocation) {
+            permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+    }
     Column(Modifier.fillMaxWidth()) {
         DjPersonaHero(config)
         Spacer(Modifier.height(24.dp))
@@ -303,6 +355,85 @@ fun DjSettingsBody(
                         onClick = onOpenAiProviders,
                     ),
                 ),
+        )
+        Spacer(Modifier.height(24.dp))
+        DjSection(
+            title = stringResource(R.string.dj_section_context),
+            description = stringResource(R.string.dj_context_privacy),
+        ) {
+            DjToggleRow(
+                title = stringResource(R.string.dj_context_enable),
+                description = stringResource(R.string.dj_context_enable_desc),
+                checked = contextEnabled,
+                onCheckedChange = changeContext,
+            )
+            Spacer(Modifier.height(12.dp))
+            DjToggleRow(
+                title = stringResource(R.string.dj_context_weather),
+                description = stringResource(R.string.dj_context_weather_desc),
+                checked = weatherEnabled,
+                onCheckedChange = { onWeatherEnabledChange(it) },
+                enabled = contextEnabled,
+            )
+            Spacer(Modifier.height(12.dp))
+            DjToggleRow(
+                title = stringResource(R.string.dj_context_news),
+                description = stringResource(R.string.dj_context_news_desc),
+                checked = newsEnabled,
+                onCheckedChange = { onNewsEnabledChange(it) },
+                enabled = contextEnabled,
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = city,
+                onValueChange = onCityChange,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = contextEnabled,
+                singleLine = true,
+                label = { Text(stringResource(R.string.dj_context_city)) },
+                placeholder = { Text(stringResource(R.string.dj_context_city_hint)) },
+                supportingText = { Text(stringResource(R.string.dj_context_city_desc)) },
+                shape = RoundedCornerShape(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DjToggleRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color =
+                    if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
         )
     }
 }

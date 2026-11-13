@@ -422,6 +422,17 @@
     <string name="dj_ai_desc">Spoken links between tracks use your AI provider.</string>
     <string name="dj_ai_provider">AI provider</string>
     <string name="dj_ai_provider_desc">Choose the provider and model for commentary.</string>
+    <string name="dj_section_context">Time &amp; place</string>
+    <string name="dj_context_enable">Use local context</string>
+    <string name="dj_context_enable_desc">Let the DJ mention the time, your city, weather and headlines.</string>
+    <string name="dj_context_privacy">Time is read on this device. The city comes from a coarse last-known location or the city you type below. Weather and headlines are fetched from Open-Meteo and Google News without an account, and only while their toggles are on.</string>
+    <string name="dj_context_weather">Weather</string>
+    <string name="dj_context_weather_desc">Current conditions for your city from Open-Meteo.</string>
+    <string name="dj_context_news">Headlines</string>
+    <string name="dj_context_news_desc">A few public news headlines from Google News.</string>
+    <string name="dj_context_city">City</string>
+    <string name="dj_context_city_desc">Fallback when location is unavailable or denied.</string>
+    <string name="dj_context_city_hint">e.g. Lisbon</string>
 
     <!-- Updater -->
     <string name="updater">Updater</string>

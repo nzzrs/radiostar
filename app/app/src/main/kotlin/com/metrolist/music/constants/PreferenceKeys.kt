@@ -793,6 +793,10 @@ val RadioStarDjProviderKey = stringPreferencesKey("radiostarDjProvider")
 val RadioStarDjBaseUrlKey = stringPreferencesKey("radiostarDjBaseUrl")
 val RadioStarDjModelKey = stringPreferencesKey("radiostarDjModel")
 val RadioStarArtworkOpacityKey = floatPreferencesKey("radiostarArtworkOpacity")
+val RadioStarDjContextKey = booleanPreferencesKey("radiostarDjContext")
+val RadioStarDjContextWeatherKey = booleanPreferencesKey("radiostarDjContextWeather")
+val RadioStarDjContextNewsKey = booleanPreferencesKey("radiostarDjContextNews")
+val RadioStarDjContextCityKey = stringPreferencesKey("radiostarDjContextCity")
 
 // Cross-device sync through the RadioStar server account.
 val RadioStarSyncEnabledKey = booleanPreferencesKey("radiostarSyncEnabled")
