@@ -1113,4 +1113,20 @@
     <string name="radiostar_share_base">Share link base</string>
     <string name="radiostar_listen_together_server">Listen Together server</string>
     <string name="radiostar_infra_hint">Point these at your own deployment instead of the upstream Metrolist servers.</string>
+    <string name="radiostar_day_start">Playlist day start</string>
+    <string name="radiostar_day_start_desc">Daily playlists rebuild after %1$s.</string>
+    <string name="radiostar_day_start_hint">Before this hour, yesterday\'s lists stay current. Weekly lists change at the start of the week.</string>
+    <string name="radiostar_info">Info</string>
+    <string name="radiostar_playlist_info">Playlist info</string>
+    <string name="radiostar_info_created">Created</string>
+    <string name="radiostar_info_updated">Last updated</string>
+    <string name="radiostar_info_version">Version</string>
+    <string name="radiostar_info_horizon">Horizon</string>
+    <string name="radiostar_info_next_refresh">Next refresh</string>
+    <string name="radiostar_info_tracks">Tracks</string>
+    <string name="radiostar_info_none">—</string>
+    <string name="radiostar_updated_today">Updated today %1$s</string>
+    <string name="radiostar_updated_yesterday">Updated yesterday %1$s</string>
+    <string name="radiostar_updated_days_ago">Updated %1$d days ago</string>
+    <string name="radiostar_updated_unknown">Update time unknown</string>
 </resources>

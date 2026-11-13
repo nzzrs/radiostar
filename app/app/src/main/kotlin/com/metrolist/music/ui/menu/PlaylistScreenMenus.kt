@@ -40,6 +40,9 @@ import com.metrolist.music.db.entities.Song
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
+import com.metrolist.music.ui.component.PlaylistInfoDialog
+import com.metrolist.music.ui.component.rememberGeneratedPlaylistMeta
+import com.metrolist.music.recommend.RadioStarPlaylistSpecs
 import com.metrolist.music.utils.PlaylistExporter
 import com.metrolist.music.utils.getExportFileUri
 import com.metrolist.music.utils.saveToPublicDocuments
@@ -67,6 +70,7 @@ fun LocalPlaylistMenu(
     val localContext = LocalContext.current
 
     val (showExportDialog, setShowExportDialog) = remember { mutableStateOf(false) }
+    val (showInfoDialog, setShowInfoDialog) = remember { mutableStateOf(false) }
 
     val downloadMenuItem =
         when (downloadState) {
@@ -230,6 +234,19 @@ fun LocalPlaylistMenu(
 
             add(
                 Material3MenuItemData(
+                    title = { Text(stringResource(R.string.radiostar_info)) },
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.info),
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = { setShowInfoDialog(true) },
+                ),
+            )
+
+            add(
+                Material3MenuItemData(
                     title = { Text(stringResource(R.string.delete)) },
                     description = { Text(stringResource(R.string.delete_playlist_desc)) },
                     icon = {
@@ -247,6 +264,20 @@ fun LocalPlaylistMenu(
         }
 
     Material3MenuGroup(items = menuItems)
+
+    if (showInfoDialog) {
+        val spec = RadioStarPlaylistSpecs.byId(playlist.id)
+        val meta = rememberGeneratedPlaylistMeta(playlist.id)
+        PlaylistInfoDialog(
+            title = playlist.playlist.name,
+            createdAt = playlist.playlist.createdAt,
+            updatedAt = playlist.playlist.lastUpdateTime,
+            trackCount = songs.size.takeIf { it > 0 } ?: playlist.songCount,
+            version = if (spec != null) meta?.version else null,
+            horizon = spec?.horizon,
+            onDismiss = { setShowInfoDialog(false) },
+        )
+    }
 
     if (showExportDialog) {
         ExportDialog(

@@ -33,6 +33,7 @@ import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.recommend.AiProviderResolver
+import com.metrolist.music.recommend.PlaylistSchedule
 import com.metrolist.music.recommend.RadioStarPlaylistRepository
 import com.metrolist.music.recommend.RadioStarSync
 import com.metrolist.music.recommend.ScrobblerSync
@@ -59,6 +60,7 @@ import java.io.IOException
 import java.net.Authenticator
 import java.net.PasswordAuthentication
 import java.net.Proxy
+import java.time.LocalDateTime
 import java.util.Locale
 import javax.inject.Inject
 
@@ -104,11 +106,20 @@ class App :
         // Build the daily/weekly playlists in the background. This only writes
         // local playlist rows; it never changes the playback queue.
         applicationScope.launch(Dispatchers.IO) {
-            // Check periodically so a session left open past 06:00 rebuilds
-            // the daily lists without waiting for a restart.
+            // Check on app open and then periodically. The delay shortens to
+            // land right after the configured playlist day start.
             while (true) {
                 radioStarRepository.refreshIfDue()
-                delay(10 * 60_000L)
+                val hour =
+                    dataStore.data
+                        .first()[RadioStarDayStartHourKey]
+                        ?: PlaylistSchedule.DAY_START_HOUR.toInt()
+                delay(
+                    PlaylistSchedule.nextCheckDelayMillis(
+                        LocalDateTime.now(),
+                        PlaylistSchedule.normalizeDayStartHour(hour.toLong()),
+                    ),
+                )
             }
         }
         applicationScope.launch(Dispatchers.IO) {

@@ -62,6 +62,7 @@ import com.metrolist.music.constants.RADIOSTAR_DEFAULT_SERVER
 import com.metrolist.music.constants.RADIOSTAR_LISTEN_TOGETHER_URL
 import com.metrolist.music.constants.RADIOSTAR_SHARE_BASE_URL
 import com.metrolist.music.constants.RadioStarArtworkOpacityKey
+import com.metrolist.music.constants.RadioStarDayStartHourKey
 import com.metrolist.music.constants.RadioStarServerKey
 import com.metrolist.music.constants.RadioStarShareBaseUrlKey
 import com.metrolist.music.constants.RadioStarSyncEnabledKey
@@ -69,6 +70,7 @@ import com.metrolist.music.constants.RadioStarSyncLastResultKey
 import com.metrolist.music.constants.RadioStarSyncMirrorScrobblerKey
 import com.metrolist.music.constants.RadioStarSyncMirrorYoutubeKey
 import com.metrolist.music.recommend.RadioStarRefreshBus
+import com.metrolist.music.recommend.PlaylistSchedule
 import com.metrolist.music.recommend.RadioStarSync
 import com.metrolist.music.recommend.ServerAuthClient
 import com.metrolist.music.recommend.ServerAuthStore
@@ -82,6 +84,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -139,7 +142,10 @@ fun RadioStarScreen(navController: NavController) {
         }
     var server by rememberPreference(RadioStarServerKey, globalServer.ifBlank { RADIOSTAR_DEFAULT_SERVER })
     var artworkOpacity by rememberPreference(RadioStarArtworkOpacityKey, 0.45f)
+    var dayStartHour by rememberPreference(RadioStarDayStartHourKey, PlaylistSchedule.DAY_START_HOUR.toInt())
     val artworkSlider = rememberSliderState(value = artworkOpacity)
+    var showDayStartDialog by remember { mutableStateOf(false) }
+    var dayStartDraft by remember { mutableStateOf(dayStartHour) }
     var authStatus by remember { mutableStateOf<ServerAuthStore.Status?>(null) }
     var showServerDialog by remember { mutableStateOf(false) }
     var serverDraft by remember { mutableStateOf("") }
@@ -227,6 +233,22 @@ fun RadioStarScreen(navController: NavController) {
                         description = { Text(stringResource(R.string.radiostar_refresh_now_desc)) },
                         showChevron = false,
                         onClick = { RadioStarRefreshBus.request() },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.time_auto),
+                        title = { Text(stringResource(R.string.radiostar_day_start)) },
+                        description = {
+                            Text(
+                                stringResource(
+                                    R.string.radiostar_day_start_desc,
+                                    String.format("%02d:00", dayStartHour),
+                                ),
+                            )
+                        },
+                        onClick = {
+                            dayStartDraft = dayStartHour
+                            showDayStartDialog = true
+                        },
                     ),
                 ),
         )
@@ -420,6 +442,52 @@ fun RadioStarScreen(navController: NavController) {
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showDayStartDialog) {
+        val dayStartSlider = rememberSliderState(dayStartDraft.toFloat(), 11, 0f..12f)
+        AlertDialog(
+            onDismissRequest = { showDayStartDialog = false },
+            title = { Text(stringResource(R.string.radiostar_day_start)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.radiostar_day_start_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = String.format("%02d:00", dayStartDraft),
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    Slider(
+                        state = dayStartSlider,
+                        onValueChange = { dayStartDraft = it.roundToInt() },
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        dayStartHour =
+                            dayStartDraft.coerceIn(
+                                PlaylistSchedule.MIN_DAY_START_HOUR.toInt(),
+                                PlaylistSchedule.MAX_DAY_START_HOUR.toInt(),
+                            )
+                        showDayStartDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.radiostar_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDayStartDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
     }
 
     if (showServerDialog) {
