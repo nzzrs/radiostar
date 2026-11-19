@@ -83,6 +83,7 @@ class DjDirector(
     private var tickerStarted = false
     private var announcedPair: String? = null
     private var holdAtTrackEnd = false
+    private var holdWatchdog: Runnable? = null
     private var baseVolume = 1f
     private var bias: TelemetryBias = TelemetryBias.EMPTY
     private var lastSpeechIndex: Int = -1
@@ -284,7 +285,10 @@ class DjDirector(
 
     /** Called when the queue or track changed; the next pair is re-planned. */
     fun onTrackStarted() {
-        if (!host.sessionActive) return
+        if (!host.sessionActive) {
+            releaseHold()
+            return
+        }
         host.player()?.currentMediaItem?.mediaId?.let(userRequestIds::remove)
         val plan = planPair() ?: return
         if (plan.pair == prepared?.pair) return
@@ -329,10 +333,7 @@ class DjDirector(
         announcer?.shutdown()
         announcer = null
         ramp.cancel()
-        if (holdAtTrackEnd) {
-            holdAtTrackEnd = false
-            host.player()?.setPauseAtEndOfMediaItems(false)
-        }
+        clearHold()
         bias = TelemetryBias.EMPTY
         lastSpeechIndex = -1
         lastSpeechAtMs = 0L
@@ -359,7 +360,7 @@ class DjDirector(
         prepared = null
         prepareJob?.cancel()
         prepareJob = null
-        holdAtTrackEnd = false
+        clearHold()
         queueSnapshot = host.player()?.let(::snapshotQueue)
         userRequestIds.clear()
         ramp.cancel()
@@ -703,18 +704,45 @@ class DjDirector(
     }
 
     private fun beginHold() {
-        if (holdAtTrackEnd) return
+        if (!host.sessionActive) return
+        if (holdAtTrackEnd) {
+            armHoldWatchdog()
+            return
+        }
         val player = host.player() ?: return
         if (!player.playWhenReady) return
         holdAtTrackEnd = true
         player.setPauseAtEndOfMediaItems(true)
+        armHoldWatchdog()
+    }
+
+    private fun armHoldWatchdog() {
+        holdWatchdog?.let(handler::removeCallbacks)
+        val watchdog =
+            Runnable {
+                holdWatchdog = null
+                if (holdAtTrackEnd) {
+                    Timber.tag(TAG).w("hold watchdog expired, releasing track-end pause")
+                    releaseHold()
+                }
+            }
+        holdWatchdog = watchdog
+        handler.postDelayed(watchdog, HOLD_WATCHDOG_MS)
+    }
+
+    private fun clearHold() {
+        holdWatchdog?.let(handler::removeCallbacks)
+        holdWatchdog = null
+        if (!holdAtTrackEnd) return
+        holdAtTrackEnd = false
+        host.player()?.setPauseAtEndOfMediaItems(false)
     }
 
     private fun releaseHold() {
-        if (!holdAtTrackEnd) return
-        holdAtTrackEnd = false
+        val wasHolding = holdAtTrackEnd
+        clearHold()
+        if (!wasHolding) return
         val player = host.player() ?: return
-        player.setPauseAtEndOfMediaItems(false)
         if (!host.sessionActive || player.isPlaying) return
         if (DjPlaybackPolicy.isAtTrackEnd(player.currentPosition, player.duration)) {
             player.play()
@@ -864,6 +892,7 @@ class DjDirector(
         const val CHAT_TIMEOUT_MS = 25_000L
         const val LINK_CONTEXT_TIMEOUT_MS = 2_000L
         const val INTRO_WATCHDOG_MS = 20_000L
+        const val HOLD_WATCHDOG_MS = 60_000L
         const val MAX_LINK_CHARS = 260
         const val MAX_USER_REQUESTS = 32
     }
