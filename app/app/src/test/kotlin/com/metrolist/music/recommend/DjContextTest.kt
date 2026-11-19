@@ -42,6 +42,53 @@ class DjContextTest {
     }
 
     @Test
+    fun `summary labels global and local headlines separately`() {
+        val snapshot =
+            DjContextSnapshot(
+                time = LocalTime.of(18, 42),
+                weekday = "Friday",
+                headlines = listOf("World lead", "World second", "Local lead"),
+                globalHeadlines = listOf("World lead", "World second"),
+                localHeadlines = listOf("Local lead"),
+            )
+
+        assertEquals(
+            "Friday 18:42 · News: 2 world: World lead; World second · 1 local: Local lead",
+            snapshot.promptSummary(),
+        )
+    }
+
+    @Test
+    fun `summary labels a single edition`() {
+        assertEquals(
+            "News: 2 world: One; Two",
+            DjContextSnapshot(globalHeadlines = listOf("One", "Two")).promptSummary(),
+        )
+        assertEquals(
+            "News: 1 local: Only local",
+            DjContextSnapshot(localHeadlines = listOf("Only local")).promptSummary(),
+        )
+    }
+
+    @Test
+    fun `split headlines stay under the prompt limit`() {
+        val snapshot =
+            DjContextSnapshot(
+                time = LocalTime.of(23, 59),
+                weekday = "Wednesday",
+                city = "City ".repeat(40).trim(),
+                weather = DjWeather(-12, "heavy snow showers"),
+                globalHeadlines = listOf("g".repeat(90), "h".repeat(90)),
+                localHeadlines = listOf("l".repeat(90), "m".repeat(90)),
+            )
+
+        val summary = snapshot.promptSummary()
+
+        assertTrue(summary.length <= DjContextSummaryLimit)
+        assertTrue(summary.endsWith("…"))
+    }
+
+    @Test
     fun `summary falls back to whatever data exists`() {
         assertEquals("", DjContextSnapshot().promptSummary())
         assertEquals("18:42", DjContextSnapshot(time = LocalTime.of(18, 42)).promptSummary())

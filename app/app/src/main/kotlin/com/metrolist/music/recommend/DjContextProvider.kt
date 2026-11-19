@@ -16,6 +16,7 @@ import com.metrolist.music.constants.RadioStarDjContextCityKey
 import com.metrolist.music.constants.RadioStarDjContextKey
 import com.metrolist.music.constants.RadioStarDjContextNewsKey
 import com.metrolist.music.constants.RadioStarDjContextWeatherKey
+import com.metrolist.music.constants.RadioStarDjNewsCategoriesKey
 import com.metrolist.music.utils.dataStore
 import java.net.HttpURLConnection
 import java.net.URL
@@ -34,7 +35,16 @@ data class DjContextSettings(
     val weatherEnabled: Boolean = false,
     val newsEnabled: Boolean = false,
     val manualCity: String = "",
+    val newsCategories: Set<DjNewsCategory> = DjNewsCategory.Default,
 )
+
+/** Headlines from the global edition and from the listener's edition. */
+data class DjNewsBundle(
+    val global: List<String> = emptyList(),
+    val local: List<String> = emptyList(),
+) {
+    val all: List<String> get() = global + local
+}
 
 fun interface DjHttpFetcher {
     fun get(url: String): String?
@@ -54,6 +64,7 @@ class DjContextProvider(
     private val fetcher: DjHttpFetcher = DjHttpFetcher(::httpGet),
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
+    private val locale: () -> Locale = { Locale.getDefault() },
 ) {
     private data class Cached<T>(
         val value: T,
@@ -65,7 +76,7 @@ class DjContextProvider(
 
     @Volatile private var weather: Cached<DjWeather?>? = null
 
-    @Volatile private var headlines: Cached<List<String>>? = null
+    @Volatile private var headlines: Cached<DjNewsBundle>? = null
 
     /** Ready-to-inject sentence, or an empty string when context is off. */
     suspend fun summary(settings: DjContextSettings): String = snapshot(settings)?.promptSummary().orEmpty()
@@ -75,13 +86,15 @@ class DjContextProvider(
         val moment = Instant.ofEpochMilli(clock()).atZone(zone())
         val city = resolveCity(settings)
         val weather = if (settings.weatherEnabled && !city.isNullOrBlank()) resolveWeather(city) else null
-        val news = if (settings.newsEnabled) resolveHeadlines() else emptyList()
+        val news = if (settings.newsEnabled) resolveHeadlines(settings.newsCategories) else DjNewsBundle()
         return DjContextSnapshot(
             time = moment.toLocalTime(),
             weekday = weekdayName(moment.dayOfWeek),
             city = city.orEmpty(),
             weather = weather,
-            headlines = news,
+            headlines = news.all,
+            globalHeadlines = news.global,
+            localHeadlines = news.local,
         )
     }
 
@@ -112,15 +125,26 @@ class DjContextProvider(
         return cached?.takeIf { it.key == city }?.value
     }
 
-    private suspend fun resolveHeadlines(): List<String> {
+    private suspend fun resolveHeadlines(categories: Set<DjNewsCategory>): DjNewsBundle {
+        val edition = DjNewsUrls.fromLocale(locale())
+        val selected = DjNewsCategory.normalize(categories)
+        val key = newsCacheKey(edition, selected)
         val cached = headlines
-        if (cached != null && isFresh(cached.at)) return cached.value
-        val fresh = withContext(Dispatchers.IO) { fetchHeadlines() }
+        if (cached != null && cached.key == key && isFresh(cached.at)) return cached.value
+        val fresh = withContext(Dispatchers.IO) { fetchHeadlines(selected, edition) }
         if (fresh != null) {
-            headlines = Cached(fresh, clock())
+            headlines = Cached(fresh, clock(), key)
             return fresh
         }
-        return cached?.value.orEmpty()
+        return cached?.takeIf { it.key == key }?.value ?: DjNewsBundle()
+    }
+
+    private fun newsCacheKey(
+        edition: DjNewsEdition,
+        categories: Set<DjNewsCategory>,
+    ): String {
+        val topics = DjNewsCategory.entries.filter { it in categories }.joinToString(",") { it.name }
+        return "${edition.country}:${edition.language}:$topics"
     }
 
     private fun fetchWeather(city: String): DjWeather? {
@@ -135,9 +159,42 @@ class DjContextProvider(
         return DjWeatherParser.parseWeather(weatherBody)
     }
 
-    private fun fetchHeadlines(): List<String>? {
-        val body = fetcher.get(NEWS_URL) ?: return null
-        return DjNewsParser.parse(body, NEWS_LIMIT).takeIf { it.isNotEmpty() }
+    private fun fetchHeadlines(
+        categories: Set<DjNewsCategory>,
+        localEdition: DjNewsEdition,
+    ): DjNewsBundle? {
+        val ordered = DjNewsCategory.entries.filter { it in categories }
+        val global = LinkedHashSet<String>()
+        val local = LinkedHashSet<String>()
+        val seen = LinkedHashSet<String>()
+        var fetched = false
+
+        for (category in ordered) {
+            if (global.size >= GLOBAL_NEWS_LIMIT) break
+            val body = fetcher.get(DjNewsUrls.topic(category, DjNewsUrls.GlobalEdition)) ?: continue
+            fetched = true
+            collectTitles(body, GLOBAL_NEWS_LIMIT - global.size, global, seen)
+        }
+        for (category in ordered) {
+            if (local.size >= LOCAL_NEWS_LIMIT) break
+            val body = fetcher.get(DjNewsUrls.topic(category, localEdition)) ?: continue
+            fetched = true
+            collectTitles(body, LOCAL_NEWS_LIMIT - local.size, local, seen)
+        }
+        return if (fetched) DjNewsBundle(global = global.toList(), local = local.toList()) else null
+    }
+
+    private fun collectTitles(
+        body: String,
+        limit: Int,
+        into: MutableSet<String>,
+        seen: MutableSet<String>,
+    ) {
+        if (limit <= 0) return
+        for (title in DjNewsParser.parse(body, seen.size + limit)) {
+            if (into.size >= limit) break
+            if (seen.add(title)) into.add(title)
+        }
     }
 
     private fun isFresh(at: Long): Boolean {
@@ -154,10 +211,11 @@ class DjContextProvider(
     companion object {
         const val CACHE_TTL_MS = 30 * 60_000L
 
+        const val GLOBAL_NEWS_LIMIT = 5
+        const val LOCAL_NEWS_LIMIT = 10
+
         private const val GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
         private const val WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
-        private const val NEWS_URL = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
-        private const val NEWS_LIMIT = 3
         private const val TIMEOUT_MS = 5_000
 
         fun create(context: Context): DjContextProvider {
@@ -177,6 +235,7 @@ class DjContextProvider(
                 weatherEnabled = prefs[RadioStarDjContextWeatherKey] ?: false,
                 newsEnabled = prefs[RadioStarDjContextNewsKey] ?: false,
                 manualCity = prefs[RadioStarDjContextCityKey].orEmpty(),
+                newsCategories = DjNewsCategory.fromStorage(prefs[RadioStarDjNewsCategoriesKey].orEmpty()),
             )
 
         suspend fun settings(context: Context): DjContextSettings =
