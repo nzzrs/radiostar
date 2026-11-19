@@ -15,6 +15,9 @@ import kotlinx.serialization.json.Json
 /** Upper bound for the context sentence injected into DJ prompts. */
 const val DjContextSummaryLimit = 180
 
+/** Headlines from each edition shown in the prompt sentence. */
+private const val DjNewsSummaryCount = 2
+
 private val djTimeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
 data class DjWeather(
@@ -28,28 +31,89 @@ data class DjContextSnapshot(
     val city: String = "",
     val weather: DjWeather? = null,
     val headlines: List<String> = emptyList(),
+    val globalHeadlines: List<String> = emptyList(),
+    val localHeadlines: List<String> = emptyList(),
 ) {
     /**
      * One short, deterministic sentence for prompts. Missing pieces are
-     * skipped; with no data at all the result is empty.
+     * skipped; with no data at all the result is empty. Split editions are
+     * labelled, while a snapshot that only carries [headlines] keeps the
+     * original rendering.
      */
     fun promptSummary(maxLength: Int = DjContextSummaryLimit): String {
         if (maxLength <= 0) return ""
+        val global = globalHeadlines.filter { it.isNotBlank() }
+        val local = localHeadlines.filter { it.isNotBlank() }
+        if (global.isNotEmpty() || local.isNotEmpty()) {
+            return renderLabelled(global, local, maxLength)
+        }
         val news = headlines.filter { it.isNotBlank() }
-        var keepHeadlines = minOf(news.size, 2)
+        var keepHeadlines = minOf(news.size, DjNewsSummaryCount)
         var text = render(news, keepHeadlines)
         while (text.length > maxLength && keepHeadlines > 0) {
             keepHeadlines = if (keepHeadlines > 1) 1 else 0
             text = render(news, keepHeadlines)
         }
         if (text.length <= maxLength) return text
-        return text.take(maxLength - 1).trimEnd() + "…"
+        return ellipsize(text, maxLength)
+    }
+
+    private fun renderLabelled(
+        global: List<String>,
+        local: List<String>,
+        maxLength: Int,
+    ): String {
+        var worldCount = minOf(global.size, DjNewsSummaryCount)
+        var localCount = minOf(local.size, DjNewsSummaryCount)
+        var text = render(global, local, worldCount, localCount)
+        while (text.length > maxLength && (worldCount > 0 || localCount > 0)) {
+            when {
+                worldCount >= localCount && worldCount > 0 -> worldCount--
+                localCount > 0 -> localCount--
+                else -> worldCount--
+            }
+            text = render(global, local, worldCount, localCount)
+        }
+        if (text.length <= maxLength) return text
+        return ellipsize(text, maxLength)
+    }
+
+    private fun render(
+        global: List<String>,
+        local: List<String>,
+        worldCount: Int,
+        localCount: Int,
+    ): String {
+        val newsPart =
+            buildList {
+                if (worldCount > 0) {
+                    add("$worldCount world: ${global.take(worldCount).joinToString("; ")}")
+                }
+                if (localCount > 0) {
+                    add("$localCount local: ${local.take(localCount).joinToString("; ")}")
+                }
+            }.joinToString(" · ")
+                .takeIf { it.isNotEmpty() }
+                ?.let { "News: $it" }
+                .orEmpty()
+        return listOf(header(), newsPart).filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     private fun render(
         headlines: List<String>,
         headlineCount: Int,
     ): String {
+        val newsPart =
+            headlines
+                .take(headlineCount)
+                .joinToString("; ")
+                .takeIf { it.isNotEmpty() }
+                ?.let { "News: $it" }
+                .orEmpty()
+        return listOf(header(), newsPart).filter { it.isNotEmpty() }.joinToString(" · ")
+    }
+
+    private fun header(): String {
         val moment = weekday.trim()
         val clock = time?.format(djTimeFormat).orEmpty()
         val whenPart = listOf(moment, clock).filter { it.isNotEmpty() }.joinToString(" ")
@@ -61,15 +125,13 @@ data class DjContextSnapshot(
                     append("${it.temperatureC}°C ${it.conditions.trim()}")
                 }
             }
-        val newsPart =
-            headlines
-                .take(headlineCount)
-                .joinToString("; ")
-                .takeIf { it.isNotEmpty() }
-                ?.let { "News: $it" }
-                .orEmpty()
-        return listOf(whenPart, placePart, newsPart).filter { it.isNotEmpty() }.joinToString(" · ")
+        return listOf(whenPart, placePart).filter { it.isNotEmpty() }.joinToString(" · ")
     }
+
+    private fun ellipsize(
+        text: String,
+        maxLength: Int,
+    ): String = text.take(maxLength - 1).trimEnd() + "…"
 }
 
 /** Open-Meteo current weather payload. */

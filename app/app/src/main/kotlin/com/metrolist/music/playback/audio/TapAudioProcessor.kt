@@ -34,6 +34,11 @@ class TapAudioProcessor(
     var sampleRate: Int = 0
         private set
 
+    /** Monotonic byte count used as a liveness signal by the audio-sink watchdog. */
+    @Volatile
+    var bytesProcessed: Long = 0L
+        private set
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
@@ -45,6 +50,8 @@ class TapAudioProcessor(
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (!inputBuffer.hasRemaining()) return
+
+        bytesProcessed += inputBuffer.remaining()
 
         if (recording) {
             val position = inputBuffer.position()

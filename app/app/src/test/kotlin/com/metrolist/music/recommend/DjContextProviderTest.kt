@@ -6,6 +6,7 @@
 package com.metrolist.music.recommend
 
 import java.time.ZoneId
+import java.util.Locale
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,6 +33,10 @@ class DjContextProviderTest {
     private var weatherCalls = 0
     private var newsCalls = 0
     private var failNetwork = false
+    private var locale: Locale = Locale.forLanguageTag("pt-PT")
+    private val newsUrls = mutableListOf<String>()
+    private val newsBodies = mutableMapOf<String, String>()
+    private val failNewsUrls = mutableSetOf<String>()
 
     private fun provider(): DjContextProvider =
         DjContextProvider(
@@ -54,8 +59,10 @@ class DjContextProviderTest {
                         }
 
                         url.contains("news.google.com") -> {
+                            if (url in failNewsUrls) return@DjHttpFetcher null
                             newsCalls++
-                            newsBody
+                            newsUrls += url
+                            newsBodies[url] ?: newsBody
                         }
 
                         else -> null
@@ -63,9 +70,20 @@ class DjContextProviderTest {
                 },
             clock = { now },
             zone = { zone },
+            locale = { locale },
         )
 
     private val everything = DjContextSettings(enabled = true, weatherEnabled = true, newsEnabled = true)
+
+    private fun global(category: DjNewsCategory): String = DjNewsUrls.topic(category, DjNewsUrls.GlobalEdition)
+
+    private fun local(category: DjNewsCategory): String =
+        DjNewsUrls.topic(category, DjNewsUrls.fromLocale(locale))
+
+    private fun feed(vararg titles: String): String =
+        "<rss><channel>" +
+            titles.joinToString("") { "<item><title>$it - Source</title></item>" } +
+            "</channel></rss>"
 
     @Test
     fun `master toggle off returns an empty summary without touching sensors or network`() =
@@ -102,10 +120,10 @@ class DjContextProviderTest {
             val summary = provider().summary(everything)
 
             assertTrue(summary.contains("Lisbon, 20°C overcast"))
-            assertTrue(summary.contains("News: First headline; Second headline"))
+            assertTrue(summary.contains("News: 2 world: First headline; Second headline"))
             assertEquals(1, geocodingCalls)
             assertEquals(1, weatherCalls)
-            assertEquals(1, newsCalls)
+            assertEquals(4, newsCalls)
         }
 
     @Test
@@ -118,7 +136,7 @@ class DjContextProviderTest {
 
             assertEquals(1, geocodingCalls)
             assertEquals(1, weatherCalls)
-            assertEquals(1, newsCalls)
+            assertEquals(4, newsCalls)
         }
 
     @Test
@@ -131,7 +149,7 @@ class DjContextProviderTest {
 
             assertEquals(2, geocodingCalls)
             assertEquals(2, weatherCalls)
-            assertEquals(2, newsCalls)
+            assertEquals(8, newsCalls)
         }
 
     @Test
@@ -174,5 +192,125 @@ class DjContextProviderTest {
 
             assertTrue(summary.contains("20°C overcast"))
             assertTrue(summary.contains("First headline"))
+        }
+
+    @Test
+    fun `news fetches global and local editions for the selected categories`() =
+        runBlocking {
+            provider().snapshot(
+                DjContextSettings(
+                    enabled = true,
+                    newsEnabled = true,
+                    newsCategories = setOf(DjNewsCategory.WORLD, DjNewsCategory.TECHNOLOGY),
+                ),
+            )
+
+            assertEquals(
+                listOf(
+                    "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
+                    "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en",
+                    "https://news.google.com/rss/headlines/section/topic/WORLD?hl=pt&gl=PT&ceid=PT:pt",
+                    "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=pt&gl=PT&ceid=PT:pt",
+                ),
+                newsUrls,
+            )
+        }
+
+    @Test
+    fun `empty categories fall back to world and nation feeds`() =
+        runBlocking {
+            provider().snapshot(
+                DjContextSettings(enabled = true, newsEnabled = true, newsCategories = emptySet()),
+            )
+
+            assertEquals(4, newsUrls.size)
+            assertTrue(newsUrls.any { it.contains("/WORLD?") && it.contains("hl=en-US") })
+            assertTrue(newsUrls.any { it.contains("/NATION?") && it.contains("hl=en-US") })
+            assertTrue(newsUrls.any { it.contains("/WORLD?") && it.contains("hl=pt") })
+            assertTrue(newsUrls.any { it.contains("/NATION?") && it.contains("hl=pt") })
+        }
+
+    @Test
+    fun `news keeps five global and ten local headlines in total`() =
+        runBlocking {
+            newsBodies[global(DjNewsCategory.WORLD)] = feed(*(0 until 20).map { "Global $it" }.toTypedArray())
+            newsBodies[local(DjNewsCategory.WORLD)] = feed(*(0 until 20).map { "Local $it" }.toTypedArray())
+
+            val snapshot =
+                provider().snapshot(
+                    DjContextSettings(
+                        enabled = true,
+                        newsEnabled = true,
+                        newsCategories = setOf(DjNewsCategory.WORLD, DjNewsCategory.NATION),
+                    ),
+                )
+
+            assertEquals(5, snapshot?.globalHeadlines?.size)
+            assertEquals("Global 0", snapshot?.globalHeadlines?.first())
+            assertEquals(10, snapshot?.localHeadlines?.size)
+            assertEquals("Local 0", snapshot?.localHeadlines?.first())
+        }
+
+    @Test
+    fun `news dedupes titles across feeds and editions`() =
+        runBlocking {
+            newsBodies[global(DjNewsCategory.WORLD)] = feed("Same story", "Global only")
+            newsBodies[global(DjNewsCategory.NATION)] = feed("Same story", "Global second")
+            newsBodies[local(DjNewsCategory.WORLD)] = feed("Same story", "Local only")
+            newsBodies[local(DjNewsCategory.NATION)] = feed("Local only", "Local second")
+
+            val snapshot =
+                provider().snapshot(
+                    DjContextSettings(
+                        enabled = true,
+                        newsEnabled = true,
+                        newsCategories = setOf(DjNewsCategory.WORLD, DjNewsCategory.NATION),
+                    ),
+                )
+
+            assertEquals(listOf("Same story", "Global only", "Global second"), snapshot?.globalHeadlines)
+            assertEquals(listOf("Local only", "Local second"), snapshot?.localHeadlines)
+        }
+
+    @Test
+    fun `per feed failures keep headlines from healthy feeds`() =
+        runBlocking {
+            failNewsUrls += global(DjNewsCategory.NATION)
+            failNewsUrls += local(DjNewsCategory.WORLD)
+            newsBodies[global(DjNewsCategory.WORLD)] = feed("Global story")
+            newsBodies[local(DjNewsCategory.NATION)] = feed("Local story")
+
+            val snapshot =
+                provider().snapshot(
+                    DjContextSettings(
+                        enabled = true,
+                        newsEnabled = true,
+                        newsCategories = setOf(DjNewsCategory.WORLD, DjNewsCategory.NATION),
+                    ),
+                )
+
+            assertEquals(listOf("Global story"), snapshot?.globalHeadlines)
+            assertEquals(listOf("Local story"), snapshot?.localHeadlines)
+        }
+
+    @Test
+    fun `news cache key covers country language and categories`() =
+        runBlocking {
+            val subject = provider()
+            val base = DjContextSettings(enabled = true, newsEnabled = true)
+            subject.snapshot(base)
+            assertEquals(4, newsUrls.size)
+            subject.snapshot(base)
+            assertEquals(4, newsUrls.size)
+
+            subject.snapshot(base.copy(newsCategories = setOf(DjNewsCategory.BUSINESS)))
+            assertEquals(6, newsUrls.size)
+            subject.snapshot(base.copy(newsCategories = setOf(DjNewsCategory.BUSINESS)))
+            assertEquals(6, newsUrls.size)
+
+            locale = Locale.forLanguageTag("es-ES")
+            subject.snapshot(base)
+            assertEquals(10, newsUrls.size)
+            assertTrue(newsUrls.last().contains("hl=es&gl=ES&ceid=ES:es"))
         }
 }

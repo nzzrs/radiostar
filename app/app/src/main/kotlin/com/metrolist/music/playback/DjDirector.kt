@@ -12,6 +12,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.metrolist.music.constants.RadioStarDjPromptKey
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.recommend.AiResolvedConfig
 import com.metrolist.music.recommend.AiTtsClient
@@ -20,20 +21,24 @@ import com.metrolist.music.recommend.DjContextProvider
 import com.metrolist.music.recommend.DjIntroPolicy
 import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjPlaybackPolicy
+import com.metrolist.music.recommend.DjPrompt
 import com.metrolist.music.recommend.DjQueueDiff
 import com.metrolist.music.recommend.DjQueueItem
 import com.metrolist.music.recommend.DjSchedulePolicy
 import com.metrolist.music.recommend.DjScript
+import com.metrolist.music.recommend.DjSessionMemory
 import com.metrolist.music.recommend.DjSessionState
 import com.metrolist.music.recommend.DjSpeechDecision
 import com.metrolist.music.recommend.DjSpeechPolicy
 import com.metrolist.music.recommend.DjUserRequest
 import com.metrolist.music.recommend.TelemetryBias
+import com.metrolist.music.utils.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -83,6 +88,7 @@ class DjDirector(
     private var tickerStarted = false
     private var announcedPair: String? = null
     private var holdAtTrackEnd = false
+    private var holdWatchdog: Runnable? = null
     private var baseVolume = 1f
     private var bias: TelemetryBias = TelemetryBias.EMPTY
     private var lastSpeechIndex: Int = -1
@@ -94,6 +100,12 @@ class DjDirector(
     private var pendingIntro: PendingIntro? = null
     private var ducked = false
     private var queueSnapshot: List<DjQueueItem>? = null
+
+    /** What the DJ already said in this session, so it can avoid repeating itself. */
+    private val sessionMemory = DjSessionMemory()
+
+    /** The editable general prompt, loaded once per session. */
+    private var generalPrompt: String? = null
 
     /** Media ids the listener queued during this session, acknowledged when they become next. */
     private val userRequestIds = LinkedHashSet<String>()
@@ -164,7 +176,10 @@ class DjDirector(
                         "dj:intro:${System.nanoTime()}",
                         audio,
                         DjAnnouncer.Callbacks(
-                            onDone = { finishIntro() },
+                            onDone = {
+                                sessionMemory.add(line)
+                                finishIntro()
+                            },
                             onError = { finishIntro() },
                         ),
                     )
@@ -239,6 +254,7 @@ class DjDirector(
                 DjIntroPolicy.Path.DIRECT_TTS -> DjIntroPolicy.composeText(fallback, contextSummary)
                 DjIntroPolicy.Path.CHAT -> {
                     val local = DjIntroPolicy.composeText(fallback, contextSummary)
+                    val general = generalPrompt()
                     val chatStart = SystemClock.elapsedRealtime()
                     val generated =
                         DjIntroPolicy.awaitText(DjIntroPolicy.INTRO_CHAT_TIMEOUT_MS, local) {
@@ -248,6 +264,8 @@ class DjDirector(
                                 firstTitle = request.firstTitle,
                                 firstArtist = request.firstArtist,
                                 contextSummary = contextSummary,
+                                previousLinks = sessionMemory.all(),
+                                generalPrompt = general,
                             )
                         }
                     textMs = SystemClock.elapsedRealtime() - chatStart
@@ -282,9 +300,27 @@ class DjDirector(
     private suspend fun fetchContextSummary(): String =
         runCatching { DjContextProvider.summary(context) }.getOrDefault("")
 
+    /** The user's general DJ prompt, cached for the session; blank means the default. */
+    private suspend fun generalPrompt(): String {
+        generalPrompt?.let { return it }
+        val loaded =
+            withContext(Dispatchers.IO) {
+                runCatching { context.dataStore.data.first()[RadioStarDjPromptKey] }
+                    .getOrNull()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: DjPrompt.DEFAULT
+            }
+        generalPrompt = loaded
+        return loaded
+    }
+
     /** Called when the queue or track changed; the next pair is re-planned. */
     fun onTrackStarted() {
-        if (!host.sessionActive) return
+        if (!host.sessionActive) {
+            releaseHold()
+            return
+        }
         host.player()?.currentMediaItem?.mediaId?.let(userRequestIds::remove)
         val plan = planPair() ?: return
         if (plan.pair == prepared?.pair) return
@@ -329,10 +365,7 @@ class DjDirector(
         announcer?.shutdown()
         announcer = null
         ramp.cancel()
-        if (holdAtTrackEnd) {
-            holdAtTrackEnd = false
-            host.player()?.setPauseAtEndOfMediaItems(false)
-        }
+        clearHold()
         bias = TelemetryBias.EMPTY
         lastSpeechIndex = -1
         lastSpeechAtMs = 0L
@@ -340,6 +373,8 @@ class DjDirector(
         linksSpoken = 0
         queueSnapshot = null
         userRequestIds.clear()
+        sessionMemory.clear()
+        generalPrompt = null
         if (!host.isCrossfading()) host.applyVolume(host.effectiveVolume())
         Timber.tag(TAG).i("end session")
     }
@@ -359,9 +394,11 @@ class DjDirector(
         prepared = null
         prepareJob?.cancel()
         prepareJob = null
-        holdAtTrackEnd = false
+        clearHold()
         queueSnapshot = host.player()?.let(::snapshotQueue)
         userRequestIds.clear()
+        sessionMemory.clear()
+        generalPrompt = null
         ramp.cancel()
     }
 
@@ -524,6 +561,7 @@ class DjDirector(
                 onDone = {
                     handler.post {
                         if (host.sessionActive && host.sessionId == token) {
+                            sessionMemory.add(link.text)
                             lastSpeechIndex = plan.index
                             lastSpeechAtMs = SystemClock.elapsedRealtime()
                             linksSpoken += 1
@@ -587,6 +625,8 @@ class DjDirector(
                     if (host.aiEnabled) {
                         val contextSummary =
                             withTimeoutOrNull(LINK_CONTEXT_TIMEOUT_MS) { contextDeferred?.await() }.orEmpty()
+                        val general = generalPrompt()
+                        val previousLinks = sessionMemory.all()
                         withTimeoutOrNull(CHAT_TIMEOUT_MS) {
                             DjAiCommentator.comment(
                                 context = context,
@@ -596,6 +636,8 @@ class DjDirector(
                                 nextArtist = plan.nextArtist,
                                 fact = plan.fact,
                                 contextSummary = contextSummary,
+                                previousLinks = previousLinks,
+                                generalPrompt = general,
                             )
                         }
                     } else {
@@ -703,18 +745,45 @@ class DjDirector(
     }
 
     private fun beginHold() {
-        if (holdAtTrackEnd) return
+        if (!host.sessionActive) return
+        if (holdAtTrackEnd) {
+            armHoldWatchdog()
+            return
+        }
         val player = host.player() ?: return
         if (!player.playWhenReady) return
         holdAtTrackEnd = true
         player.setPauseAtEndOfMediaItems(true)
+        armHoldWatchdog()
+    }
+
+    private fun armHoldWatchdog() {
+        holdWatchdog?.let(handler::removeCallbacks)
+        val watchdog =
+            Runnable {
+                holdWatchdog = null
+                if (holdAtTrackEnd) {
+                    Timber.tag(TAG).w("hold watchdog expired, releasing track-end pause")
+                    releaseHold()
+                }
+            }
+        holdWatchdog = watchdog
+        handler.postDelayed(watchdog, HOLD_WATCHDOG_MS)
+    }
+
+    private fun clearHold() {
+        holdWatchdog?.let(handler::removeCallbacks)
+        holdWatchdog = null
+        if (!holdAtTrackEnd) return
+        holdAtTrackEnd = false
+        host.player()?.setPauseAtEndOfMediaItems(false)
     }
 
     private fun releaseHold() {
-        if (!holdAtTrackEnd) return
-        holdAtTrackEnd = false
+        val wasHolding = holdAtTrackEnd
+        clearHold()
+        if (!wasHolding) return
         val player = host.player() ?: return
-        player.setPauseAtEndOfMediaItems(false)
         if (!host.sessionActive || player.isPlaying) return
         if (DjPlaybackPolicy.isAtTrackEnd(player.currentPosition, player.duration)) {
             player.play()
@@ -864,6 +933,7 @@ class DjDirector(
         const val CHAT_TIMEOUT_MS = 25_000L
         const val LINK_CONTEXT_TIMEOUT_MS = 2_000L
         const val INTRO_WATCHDOG_MS = 20_000L
+        const val HOLD_WATCHDOG_MS = 60_000L
         const val MAX_LINK_CHARS = 260
         const val MAX_USER_REQUESTS = 32
     }
