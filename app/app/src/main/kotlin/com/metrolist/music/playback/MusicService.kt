@@ -32,6 +32,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.datastore.preferences.core.Preferences
@@ -198,6 +199,7 @@ import com.metrolist.music.models.PersistQueue
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.alarm.MusicAlarmScheduler
 import com.metrolist.music.playback.alarm.MusicAlarmStore
+import com.metrolist.music.playback.audio.AudioSinkStallPolicy
 import com.metrolist.music.playback.audio.AudioTap
 import com.metrolist.music.playback.audio.ClapEmbedder
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
@@ -330,8 +332,15 @@ class MusicService :
     private var wasPlayingBeforeAudioFocusLoss = false
     private var hasAudioFocus = false
     private var reentrantFocusGain = false
+    private val audioFocusPolicy = AudioFocusPolicy()
+    private var duckWatchdogJob: Job? = null
     private var wasPlayingBeforeVolumeMute = false
     private var isPausedByVolumeMute = false
+
+    private val audioSinkStallPolicy = AudioSinkStallPolicy()
+    private var audioSinkWatchdogStarted = false
+    @Volatile
+    private var audioOffloadActive = false
 
     private var crossfadeEnabled = false
     private var crossfadeDuration = 5000f
@@ -410,7 +419,7 @@ class MusicService :
     }
 
     private fun applyEffectiveVolume() {
-        if (!::player.isInitialized || isCrossfading) return
+        if (!::player.isInitialized || isCrossfading || djDirector.isDucking) return
         player.volume = calculateEffectiveVolume()
     }
 
@@ -766,6 +775,7 @@ class MusicService :
         player = createExoPlayer(prefs = startupPrefs!!)
         enableAnalysisTap(player)
         startDjTicker()
+        startAudioSinkWatchdog()
         player.addListener(this@MusicService)
         sleepTimer =
             SleepTimer(scope, player) { multiplier ->
@@ -1025,6 +1035,7 @@ class MusicService :
             if (crossfadeEnabled) false else offloadPref
         }.distinctUntilChanged()
             .collectLatest(scope) { useOffload ->
+                audioOffloadActive = useOffload
                 player.setOffloadEnabled(useOffload)
                 secondaryPlayer?.setOffloadEnabled(useOffload)
             }
@@ -1090,6 +1101,7 @@ class MusicService :
 
                 player = newPlayer
                 _playerFlow.value = newPlayer
+                audioSinkStallPolicy.reset()
 
                 Timber.tag("MusicService").i("Player recreated with AudioTrackPlaybackParams: $useAudioTrackParams")
             }
@@ -1448,6 +1460,7 @@ class MusicService :
         if (prefs != null) {
             val offload = prefs[AudioOffload] ?: false
             val crossfade = prefs[CrossfadeEnabledKey] ?: false
+            audioOffloadActive = !crossfade && offload
             player.setOffloadEnabled(if (crossfade) false else offload)
             player.skipSilenceEnabled = prefs[SkipSilenceKey] ?: false
         } else {
@@ -1455,6 +1468,7 @@ class MusicService :
                 runBlocking {
                     val offload = dataStore.get(AudioOffload, false)
                     val crossfade = dataStore.get(CrossfadeEnabledKey, false)
+                    audioOffloadActive = !crossfade && offload
                     setOffloadEnabled(if (crossfade) false else offload)
                     skipSilenceEnabled = dataStore.get(SkipSilenceKey, false)
                 }
@@ -1507,13 +1521,15 @@ class MusicService :
     }
 
     private fun handleAudioFocusChange(focusChange: Int) {
-        when (focusChange) {
-            AudioManager.AUDIOFOCUS_GAIN,
-            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-            -> {
-                hasAudioFocus = true
-                audioFocusVolumeMultiplier.value = 1f
+        val event = focusChange.toAudioFocusEvent() ?: return
+        audioFocusPolicy.onEvent(event, SystemClock.elapsedRealtime())
+        publishAudioFocusState()
+        scheduleDuckWatchdog()
 
+        when (event) {
+            AudioFocusEvent.GAIN,
+            AudioFocusEvent.GAIN_TRANSIENT,
+            -> {
                 if (wasPlayingBeforeAudioFocusLoss && !player.isPlaying && !reentrantFocusGain) {
                     reentrantFocusGain = true
                     scope.launch {
@@ -1532,10 +1548,8 @@ class MusicService :
                 lastAudioFocusState = focusChange
             }
 
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                hasAudioFocus = false
-                audioFocusVolumeMultiplier.value = 1f
-                wasPlayingBeforeAudioFocusLoss = player.isPlaying
+            AudioFocusEvent.LOSS -> {
+                wasPlayingBeforeAudioFocusLoss = player.playWhenReady || player.isPlaying
                 if (player.isPlaying) {
                     player.pause()
                 }
@@ -1543,53 +1557,88 @@ class MusicService :
                 lastAudioFocusState = focusChange
             }
 
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                hasAudioFocus = false
-                audioFocusVolumeMultiplier.value = 1f
-                wasPlayingBeforeAudioFocusLoss = player.isPlaying
+            AudioFocusEvent.LOSS_TRANSIENT -> {
+                wasPlayingBeforeAudioFocusLoss = player.playWhenReady || player.isPlaying
                 if (player.isPlaying) {
                     player.pause()
                 }
                 lastAudioFocusState = focusChange
             }
 
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                hasAudioFocus = false
-                audioFocusVolumeMultiplier.value = 0.2f
-                wasPlayingBeforeAudioFocusLoss = player.isPlaying
+            AudioFocusEvent.LOSS_TRANSIENT_CAN_DUCK -> {
+                wasPlayingBeforeAudioFocusLoss = player.playWhenReady || player.isPlaying
                 if (player.isPlaying) {
                     applyEffectiveVolume()
                 }
                 lastAudioFocusState = focusChange
             }
 
-            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> {
-                hasAudioFocus = true
-                audioFocusVolumeMultiplier.value = 1f
+            AudioFocusEvent.GAIN_TRANSIENT_MAY_DUCK -> {
                 applyEffectiveVolume()
                 lastAudioFocusState = focusChange
             }
         }
     }
 
+    private fun publishAudioFocusState() {
+        audioFocusVolumeMultiplier.value = audioFocusPolicy.volumeMultiplier
+        hasAudioFocus = audioFocusPolicy.hasFocus
+    }
+
+    private fun scheduleDuckWatchdog() {
+        duckWatchdogJob?.cancel()
+        duckWatchdogJob = null
+        if (!audioFocusPolicy.isDucking) return
+
+        duckWatchdogJob =
+            scope.launch {
+                delay(audioFocusPolicy.maxDuckMs)
+                if (audioFocusPolicy.expireDuck(SystemClock.elapsedRealtime())) {
+                    Timber.tag(TAG).w("Audio focus duck outlived its window, restoring volume")
+                    publishAudioFocusState()
+                    applyEffectiveVolume()
+                }
+            }
+    }
+
+    private fun Int.toAudioFocusEvent(): AudioFocusEvent? =
+        when (this) {
+            AudioManager.AUDIOFOCUS_GAIN -> AudioFocusEvent.GAIN
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT -> AudioFocusEvent.GAIN_TRANSIENT
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK -> AudioFocusEvent.GAIN_TRANSIENT_MAY_DUCK
+            AudioManager.AUDIOFOCUS_LOSS -> AudioFocusEvent.LOSS
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> AudioFocusEvent.LOSS_TRANSIENT
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> AudioFocusEvent.LOSS_TRANSIENT_CAN_DUCK
+            else -> null
+        }
+
     private fun requestAudioFocus(): Boolean {
         if (hasAudioFocus) return true
 
         audioFocusRequest?.let { request ->
-            val result = audioManager.requestAudioFocus(request)
-            hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            return hasAudioFocus
+            val granted =
+                audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            hasAudioFocus = granted
+            audioFocusPolicy.onFocusRequestResult(granted)
+            if (granted) {
+                publishAudioFocusState()
+                scheduleDuckWatchdog()
+                applyEffectiveVolume()
+            }
+            return granted
         }
         return false
     }
 
     private fun abandonAudioFocus() {
-        if (hasAudioFocus) {
-            audioFocusRequest?.let { request ->
-                audioManager.abandonAudioFocusRequest(request)
-                hasAudioFocus = false
-            }
+        if (::audioManager.isInitialized) {
+            audioFocusRequest?.let(audioManager::abandonAudioFocusRequest)
         }
+        hasAudioFocus = false
+        audioFocusPolicy.onAbandoned()
+        duckWatchdogJob?.cancel()
+        duckWatchdogJob = null
+        publishAudioFocusState()
     }
 
     private fun clearPersistedQueueFiles() {
@@ -2669,6 +2718,7 @@ class MusicService :
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null
+        audioSinkStallPolicy.reset()
         retryJob?.cancel()
         retryJob = null
         updateInitialBufferRecovery(player.playbackState)
@@ -2709,6 +2759,10 @@ class MusicService :
         lastPlaybackSpeed = -1.0f // force update song
 
         djDirector.onTrackStarted()
+        if (!radioStarDj && player.pauseAtEndOfMediaItems) {
+            // A DJ hold that outlived its session must never pause ordinary playback.
+            player.pauseAtEndOfMediaItems = false
+        }
 
         setupAudioNormalization()
 
@@ -2909,6 +2963,68 @@ class MusicService :
                     retryReason = "initial buffer stall",
                 )
             }
+    }
+
+    private fun startAudioSinkWatchdog() {
+        if (audioSinkWatchdogStarted) return
+        audioSinkWatchdogStarted = true
+        scope.launch {
+            while (isActive) {
+                delay(AUDIO_SINK_WATCHDOG_INTERVAL_MS)
+                checkAudioSinkProgress()
+            }
+        }
+    }
+
+    /**
+     * ExoPlayer can keep its timeline running while no PCM reaches the processor
+     * chain, for example when an OEM audio sink was invalidated by an app switch
+     * or screen off. The tap sits first in the chain, so its byte count is a
+     * direct liveness signal for audio reaching the sink.
+     */
+    private fun checkAudioSinkProgress() {
+        if (!::player.isInitialized || player.mediaItemCount == 0) {
+            audioSinkStallPolicy.reset()
+            return
+        }
+
+        val eligible =
+            player.isPlaying &&
+                player.playbackState == Player.STATE_READY &&
+                !isCrossfading &&
+                castConnectionHandler?.isCasting?.value != true &&
+                !audioOffloadActive &&
+                calculateEffectiveVolume() > 0f
+
+        val frames = playerAnalysisTaps[player]?.processor?.bytesProcessed ?: 0L
+        val decision =
+            audioSinkStallPolicy.evaluate(
+                nowMs = SystemClock.elapsedRealtime(),
+                eligible = eligible,
+                framesDelivered = frames,
+                trackKey = player.currentMediaItem?.mediaId,
+            )
+
+        if (decision == AudioSinkStallPolicy.Decision.RECOVER) {
+            recoverAudioSink()
+        }
+    }
+
+    private fun recoverAudioSink() {
+        val index = player.currentMediaItemIndex
+        if (index == C.INDEX_UNSET) return
+        val position = player.currentPosition.coerceAtLeast(0L)
+        Timber.tag(TAG).w(
+            "Audio sink produced no frames while playing, reinitialising at index=%d position=%d",
+            index,
+            position,
+        )
+        try {
+            player.seekTo(index, position)
+            player.prepare()
+        } catch (e: Exception) {
+            reportException(e)
+        }
     }
 
     override fun onEvents(
@@ -3209,6 +3325,7 @@ class MusicService :
 
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
+        audioSinkStallPolicy.reset()
 
         if (!playerInitialized.value) {
             Timber.tag(TAG).e(error, "Player error occurred but player not initialized")
@@ -4721,6 +4838,15 @@ class MusicService :
         super.onBind(intent) ?: binder.also {
             // The app UI rebinding to a still-alive instance means the user is back.
             taskCleared = false
+            if (::player.isInitialized && player.playWhenReady) {
+                if (audioFocusPolicy.expireDuck(SystemClock.elapsedRealtime())) {
+                    publishAudioFocusState()
+                }
+                if (requestAudioFocus()) {
+                    openAudioEffectSession()
+                }
+                applyEffectiveVolume()
+            }
         }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -5535,6 +5661,7 @@ class MusicService :
 
         private const val INITIAL_BUFFER_RECOVERY_DELAY_MS = 15_000L
         private const val INITIAL_BUFFER_RECOVERY_POSITION_MS = 5_000L
+        private const val AUDIO_SINK_WATCHDOG_INTERVAL_MS = 1_000L
         private const val TAG = "MusicService"
 
         @Volatile
