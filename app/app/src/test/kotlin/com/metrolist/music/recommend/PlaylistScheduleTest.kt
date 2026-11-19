@@ -84,6 +84,42 @@ class PlaylistScheduleTest {
     }
 
     @Test
+    fun `a manual refresh covers both horizons`() {
+        val plan = PlaylistRefreshPlan.all
+
+        assertTrue(plan.daily)
+        assertTrue(plan.weekly)
+        assertTrue(plan.any)
+        assertFalse(PlaylistRefreshPlan.none.any)
+    }
+
+    @Test
+    fun `stamps advance only for groups that were planned and written`() {
+        assertEquals(
+            PlaylistRefreshPlan.all,
+            PlaylistSchedule.stampsToAdvance(PlaylistRefreshPlan.all, PlaylistRefreshPlan.all),
+        )
+        assertEquals(
+            PlaylistRefreshPlan(daily = true, weekly = false),
+            PlaylistSchedule.stampsToAdvance(
+                PlaylistRefreshPlan.all,
+                PlaylistRefreshPlan(daily = true, weekly = false),
+            ),
+        )
+        assertEquals(
+            PlaylistRefreshPlan.none,
+            PlaylistSchedule.stampsToAdvance(PlaylistRefreshPlan.none, PlaylistRefreshPlan.all),
+        )
+        assertEquals(
+            PlaylistRefreshPlan.none,
+            PlaylistSchedule.stampsToAdvance(
+                PlaylistRefreshPlan(daily = true, weekly = false),
+                PlaylistRefreshPlan.none,
+            ),
+        )
+    }
+
+    @Test
     fun `playlist day rolls over at six in the morning`() {
         assertEquals(
             LocalDate.of(2026, 11, 5),

@@ -13,7 +13,15 @@ import java.time.temporal.WeekFields
 data class PlaylistRefreshPlan(
     val daily: Boolean,
     val weekly: Boolean,
-)
+) {
+    val any: Boolean
+        get() = daily || weekly
+
+    companion object {
+        val none = PlaylistRefreshPlan(daily = false, weekly = false)
+        val all = PlaylistRefreshPlan(daily = true, weekly = true)
+    }
+}
 
 /**
  * A daily playlist is built once per playlist day and a weekly playlist once
@@ -91,6 +99,19 @@ object PlaylistSchedule {
             weekly = lastWeeklyStamp != weeklyStamp(today),
         )
     }
+
+    /**
+     * A stamp may only advance for a group that was planned and actually wrote
+     * at least one playlist, so a failed generation is retried next time.
+     */
+    fun stampsToAdvance(
+        plan: PlaylistRefreshPlan,
+        written: PlaylistRefreshPlan,
+    ): PlaylistRefreshPlan =
+        PlaylistRefreshPlan(
+            daily = plan.daily && written.daily,
+            weekly = plan.weekly && written.weekly,
+        )
 
     fun dailyStamp(date: LocalDate): String = date.toString()
 
