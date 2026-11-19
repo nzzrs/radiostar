@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -37,6 +38,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -76,8 +78,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarDjNewsCategoriesKey
 import com.metrolist.music.playback.DjVoicePreview
 import com.metrolist.music.recommend.DjConfig
+import com.metrolist.music.recommend.DjNewsCategory
 import com.metrolist.music.recommend.DjPersona
 import com.metrolist.music.recommend.DjPersonaIssue
 import com.metrolist.music.recommend.DjPersonaLibrary
@@ -85,6 +89,7 @@ import com.metrolist.music.recommend.DjPersonaValidation
 import com.metrolist.music.recommend.DjPresence
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
+import com.metrolist.music.utils.rememberPreference
 import java.util.Locale
 
 @Composable
@@ -326,6 +331,11 @@ fun DjSettingsBody(
             permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
     }
+    var storedNewsCategories by rememberPreference(
+        RadioStarDjNewsCategoriesKey,
+        DjNewsCategory.toStorage(DjNewsCategory.Default),
+    )
+    val selectedNewsCategories = DjNewsCategory.fromStorage(storedNewsCategories)
     var editorOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<DjPersona?>(null) }
     var pendingDelete by remember { mutableStateOf<DjPersona?>(null) }
@@ -460,6 +470,49 @@ fun DjSettingsBody(
                 onCheckedChange = { onNewsEnabledChange(it) },
                 enabled = contextEnabled,
             )
+            if (contextEnabled && newsEnabled) {
+                val locale = Locale.getDefault()
+                val countryLabel =
+                    locale.getDisplayCountry(locale)
+                        .ifBlank { locale.country }
+                        .ifBlank { "—" }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.dj_context_news_topics),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DjNewsCategory.entries.forEach { category ->
+                        FilterChip(
+                            selected = category in selectedNewsCategories,
+                            onClick = {
+                                val next =
+                                    if (category in selectedNewsCategories) {
+                                        selectedNewsCategories - category
+                                    } else {
+                                        selectedNewsCategories + category
+                                    }
+                                if (next.isNotEmpty()) {
+                                    storedNewsCategories = DjNewsCategory.toStorage(next)
+                                }
+                            },
+                            label = { Text(stringResource(category.labelRes())) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.dj_context_news_note, countryLabel),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = city,
@@ -509,6 +562,18 @@ fun DjSettingsBody(
         )
     }
 }
+
+private fun DjNewsCategory.labelRes(): Int =
+    when (this) {
+        DjNewsCategory.WORLD -> R.string.dj_context_news_world
+        DjNewsCategory.NATION -> R.string.dj_context_news_nation
+        DjNewsCategory.BUSINESS -> R.string.dj_context_news_business
+        DjNewsCategory.TECHNOLOGY -> R.string.dj_context_news_technology
+        DjNewsCategory.SCIENCE -> R.string.dj_context_news_science
+        DjNewsCategory.HEALTH -> R.string.dj_context_news_health
+        DjNewsCategory.SPORTS -> R.string.dj_context_news_sports
+        DjNewsCategory.ENTERTAINMENT -> R.string.dj_context_news_entertainment
+    }
 
 @Composable
 private fun DjToggleRow(
