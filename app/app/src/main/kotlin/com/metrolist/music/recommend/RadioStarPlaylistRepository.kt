@@ -7,6 +7,7 @@ package com.metrolist.music.recommend
 
 import android.content.Context
 import android.provider.Settings
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.room.withTransaction
@@ -27,6 +28,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.utils.dataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.LocalDate
 import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -101,7 +103,8 @@ class RadioStarPlaylistRepository
         suspend fun refreshIfDue(force: Boolean = false) {
             mutex.withLock {
                 val prefs = context.dataStore.data.first()
-                val today = PlaylistSchedule.scheduleDate(LocalDateTime.now(), dayStartHour(prefs))
+                val now = LocalDateTime.now()
+                val today = PlaylistSchedule.scheduleDate(now, dayStartHour(prefs))
                 val plan =
                     PlaylistSchedule.plan(
                         today = today,
@@ -109,69 +112,92 @@ class RadioStarPlaylistRepository
                         lastWeeklyStamp = prefs[WEEKLY_STAMP],
                         force = force,
                     )
-                if (!plan.daily && !plan.weekly) {
-                    loadCards()
-                    return
-                }
-
-                val server = serverUrl(prefs)
-                if (server.isNullOrBlank()) {
-                    Timber.tag(TAG).i("no embedding server; keeping existing playlists")
-                    loadCards()
-                    return
-                }
-
-                try {
-                    if (plan.daily) {
-                        generateGroup(RadioStarPlaylistSpecs.daily, days = 7, anchors = 5, perAnchor = 18, server)
-                    }
-                    if (plan.weekly) {
-                        generateGroup(RadioStarPlaylistSpecs.weekly, days = 30, anchors = 8, perAnchor = 18, server)
-                    }
-                    context.dataStore.edit { settings ->
-                        if (plan.daily) settings[DAILY_STAMP] = PlaylistSchedule.dailyStamp(today)
-                        if (plan.weekly) settings[WEEKLY_STAMP] = PlaylistSchedule.weeklyStamp(today)
-                    }
-                    Timber.tag(TAG).i("generated daily=%s weekly=%s", plan.daily, plan.weekly)
-                } catch (error: Throwable) {
-                    Timber.tag(TAG).e(error, "playlist generation failed")
-                }
-                loadCards()
+                regenerate(plan, today, prefs, now)
             }
         }
 
         /**
-         * Rebuilds one generated playlist after a pull-to-refresh. It does not
-         * advance the daily/weekly stamp: the other lists in the same group are
-         * still valid, and the user asked only for this one.
+         * A user-requested refresh rebuilds every generated playlist in one run,
+         * so daily and weekly lists share one generation timestamp. Its stamps
+         * advance too, otherwise Home would rebuild them again right away.
          */
         suspend fun refreshPlaylist(id: String): Boolean =
             mutex.withLock {
-                val spec = RadioStarPlaylistSpecs.byId(id) ?: return@withLock false
+                if (RadioStarPlaylistSpecs.byId(id) == null) return@withLock false
                 val prefs = context.dataStore.data.first()
-                val server = serverUrl(prefs)
-                if (server.isNullOrBlank()) {
-                    Timber.tag(TAG).i("no embedding server; cannot refresh %s", id)
-                    return@withLock false
-                }
-                val specs = if (spec.horizon == PlaylistHorizon.DAILY) RadioStarPlaylistSpecs.daily else RadioStarPlaylistSpecs.weekly
-                val days = if (spec.horizon == PlaylistHorizon.DAILY) 7L else 30L
-                val anchors = if (spec.horizon == PlaylistHorizon.DAILY) 5 else 8
-                val refreshed =
-                    runCatching {
-                        generateGroup(
-                            specs = specs,
-                            days = days,
-                            anchors = anchors,
-                            perAnchor = 18,
-                            server = server,
-                            only = id,
-                        )
-                    }.onFailure { Timber.tag(TAG).e(it, "refresh failed for %s", id) }
-                        .getOrDefault(false)
-                loadCards()
-                refreshed
+                val now = LocalDateTime.now()
+                val today = PlaylistSchedule.scheduleDate(now, dayStartHour(prefs))
+                regenerate(PlaylistRefreshPlan.all, today, prefs, now)
             }
+
+        /**
+         * Runs the planned groups under the caller's lock. Each group is
+         * isolated, and a stamp only advances when its group wrote a playlist.
+         */
+        private suspend fun regenerate(
+            plan: PlaylistRefreshPlan,
+            today: LocalDate,
+            prefs: Preferences,
+            now: LocalDateTime,
+        ): Boolean {
+            if (!plan.any) {
+                loadCards()
+                return false
+            }
+            val server = serverUrl(prefs)
+            if (server.isNullOrBlank()) {
+                Timber.tag(TAG).i("no embedding server; keeping existing playlists")
+                loadCards()
+                return false
+            }
+
+            val written =
+                PlaylistRefreshPlan(
+                    daily =
+                        plan.daily &&
+                            generateGroupSafely(
+                                RadioStarPlaylistSpecs.daily,
+                                days = 7,
+                                anchors = 5,
+                                perAnchor = 18,
+                                server = server,
+                                now = now,
+                            ),
+                    weekly =
+                        plan.weekly &&
+                            generateGroupSafely(
+                                RadioStarPlaylistSpecs.weekly,
+                                days = 30,
+                                anchors = 8,
+                                perAnchor = 18,
+                                server = server,
+                                now = now,
+                            ),
+                )
+            val advance = PlaylistSchedule.stampsToAdvance(plan, written)
+            if (advance.any) {
+                context.dataStore.edit { settings ->
+                    if (advance.daily) settings[DAILY_STAMP] = PlaylistSchedule.dailyStamp(today)
+                    if (advance.weekly) settings[WEEKLY_STAMP] = PlaylistSchedule.weeklyStamp(today)
+                }
+            }
+            Timber.tag(TAG).i("generated daily=%s weekly=%s", written.daily, written.weekly)
+            loadCards()
+            return written.any
+        }
+
+        private suspend fun generateGroupSafely(
+            specs: List<PlaylistSpec>,
+            days: Long,
+            anchors: Int,
+            perAnchor: Int,
+            server: String,
+            now: LocalDateTime,
+        ): Boolean =
+            runCatching {
+                generateGroup(specs, days, anchors, perAnchor, server, now)
+            }.onFailure { Timber.tag(TAG).e(it, "playlist generation failed") }
+                .getOrDefault(false)
 
         private suspend fun generateGroup(
             specs: List<PlaylistSpec>,
@@ -179,7 +205,7 @@ class RadioStarPlaylistRepository
             anchors: Int,
             perAnchor: Int,
             server: String,
-            only: String? = null,
+            now: LocalDateTime,
         ): Boolean {
             val cutoff = System.currentTimeMillis() / 1000L - days * 86_400L
             val allImported = ListenStore(context).load()
@@ -275,7 +301,6 @@ class RadioStarPlaylistRepository
 
             var wrote = false
             for (spec in specs) {
-                if (only != null && spec.id != only) continue
                 val pool =
                     if (spec.kind == MixKind.DISCOVER || spec.kind == MixKind.EXPLORE) {
                         allPool.filter { it.id in radioIds }
@@ -307,7 +332,7 @@ class RadioStarPlaylistRepository
                     )
                 if (slate.isEmpty()) continue
                 val ordered = orderSlate(slate, profiles, referenceId)
-                writePlaylist(spec, ordered)
+                writePlaylist(spec, ordered, now)
                 wrote = true
                 Timber.tag(TAG).i(
                     "wrote %s kind=%s tracks=%d",
@@ -416,8 +441,8 @@ class RadioStarPlaylistRepository
         private suspend fun writePlaylist(
             spec: PlaylistSpec,
             slate: List<SlateEntry>,
+            now: LocalDateTime,
         ) {
-            val now = LocalDateTime.now()
             val written = slate.count { it.candidate.tag != null }
             database.withTransaction {
                 val existing = database.playlistEntity(spec.id)
@@ -478,7 +503,7 @@ class RadioStarPlaylistRepository
             }.onFailure { Timber.tag(TAG).w(it, "could not record metadata for %s", spec.id) }
         }
 
-        private fun dayStartHour(prefs: androidx.datastore.preferences.core.Preferences): Long =
+        private fun dayStartHour(prefs: Preferences): Long =
             PlaylistSchedule.normalizeDayStartHour(
                 (prefs[RadioStarDayStartHourKey] ?: PlaylistSchedule.DAY_START_HOUR.toInt()).toLong(),
             )
@@ -578,7 +603,7 @@ class RadioStarPlaylistRepository
             return sum
         }
 
-        private fun serverUrl(prefs: androidx.datastore.preferences.core.Preferences): String =
+        private fun serverUrl(prefs: Preferences): String =
             prefs[RadioStarServerKey]?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
                 ?: Settings.Global
                     .getString(context.contentResolver, "radiostar_embed_server")
