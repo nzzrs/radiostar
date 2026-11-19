@@ -215,4 +215,122 @@ class DjIntroPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `intro prompt uses the general prompt as the system instruction`() {
+        val custom = "CUSTOM HOST INSTRUCTIONS"
+        val prompt =
+            DjIntroPolicy.introPrompt(
+                persona = DjPersona.CHERRY,
+                firstTitle = "ANSIEDAD",
+                firstArtist = "Fuerza Regida",
+                generalPrompt = custom,
+            )
+
+        assertTrue(prompt.startsWith(custom))
+        assertTrue(prompt.contains(DjPersona.CHERRY.tagline))
+        assertTrue(prompt.contains("ANSIEDAD"))
+    }
+
+    @Test
+    fun `link prompt uses the general prompt and the default when omitted`() {
+        val byDefault =
+            DjIntroPolicy.linkPrompt(
+                persona = DjPersona.CHERRY,
+                previous = "One by Artist A",
+                nextTitle = "Two",
+                nextArtist = "Artist B",
+                fact = null,
+            )
+        assertTrue(byDefault.startsWith(DjPrompt.DEFAULT))
+
+        val custom =
+            DjIntroPolicy.linkPrompt(
+                persona = DjPersona.BERRY,
+                previous = "One by Artist A",
+                nextTitle = "Two",
+                nextArtist = "Artist B",
+                fact = null,
+                generalPrompt = "CUSTOM LINK INSTRUCTIONS",
+            )
+        assertTrue(custom.startsWith("CUSTOM LINK INSTRUCTIONS"))
+        assertTrue(custom.contains(DjPersona.BERRY.tagline))
+    }
+
+    @Test
+    fun `prompts include earlier lines and the no repetition rule`() {
+        val earlier = listOf("That bassline was huge", "The rain fits the synths")
+        val intro =
+            DjIntroPolicy.introPrompt(
+                persona = DjPersona.LEMON,
+                firstTitle = "One",
+                firstArtist = "Artist A",
+                previousLinks = earlier,
+            )
+        val link =
+            DjIntroPolicy.linkPrompt(
+                persona = DjPersona.LEMON,
+                previous = "One by Artist A",
+                nextTitle = "Two",
+                nextArtist = "Artist B",
+                fact = null,
+                previousLinks = earlier,
+            )
+
+        listOf(intro, link).forEach { prompt ->
+            assertTrue(prompt.contains("Earlier in this session you said:"))
+            assertTrue(prompt.contains("That bassline was huge"))
+            assertTrue(prompt.contains("The rain fits the synths"))
+            assertTrue(prompt.contains("Do not repeat those jokes, opinions or phrasing"))
+        }
+    }
+
+    @Test
+    fun `prompts without earlier lines leave the repetition block out`() {
+        val intro = DjIntroPolicy.introPrompt(DjPersona.LEMON, "One", "Artist A")
+        val link =
+            DjIntroPolicy.linkPrompt(
+                persona = DjPersona.LEMON,
+                previous = null,
+                nextTitle = "Two",
+                nextArtist = "Artist B",
+                fact = null,
+            )
+
+        assertFalse(intro.contains("Earlier in this session"))
+        assertFalse(link.contains("Earlier in this session"))
+    }
+
+    @Test
+    fun `link prompt asks for a reaction and forbids reading context as a list`() {
+        val prompt =
+            DjIntroPolicy.linkPrompt(
+                persona = DjPersona.CHERRY,
+                previous = "One by Artist A",
+                nextTitle = "Two",
+                nextArtist = "Artist B",
+                fact = null,
+                contextSummary = "Tuesday 21:30 · Lisbon, 19°C overcast",
+            )
+
+        assertTrue(prompt.contains("opinion", ignoreCase = true))
+        assertTrue(prompt.contains("joke", ignoreCase = true))
+        assertTrue(prompt.contains("weather", ignoreCase = true))
+        assertTrue(prompt.contains("read the time, weather or news as a list"))
+    }
+
+    @Test
+    fun `intro prompt invites a reaction without listing local details`() {
+        val prompt =
+            DjIntroPolicy.introPrompt(
+                persona = DjPersona.CHERRY,
+                firstTitle = "ANSIEDAD",
+                firstArtist = "Fuerza Regida",
+            )
+
+        assertTrue(prompt.contains("opinion", ignoreCase = true))
+        assertTrue(prompt.contains("joke", ignoreCase = true))
+        assertTrue(prompt.contains("read those details as a list"))
+        assertTrue(prompt.contains("30 words"))
+    }
 }

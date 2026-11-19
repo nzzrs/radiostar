@@ -424,6 +424,11 @@
     <string name="dj_ai_provider_desc">Choose the provider and model for commentary.</string>
     <string name="dj_direct_tts">Speak the intro right away</string>
     <string name="dj_direct_tts_desc">Skip the chat wait at the start: send the DJ\'s local intro to a styled voice. Turn off to write the intro with the chat model first.</string>
+    <string name="dj_prompt_section">DJ prompt</string>
+    <string name="dj_prompt_desc">General instructions for how the DJ talks between songs. The selected persona\'s style is added on top.</string>
+    <string name="dj_prompt_label">General instructions</string>
+    <string name="dj_prompt_support">Describe the host, the tone and what to talk about. Keep it short; the song and session details are added automatically.</string>
+    <string name="dj_prompt_reset">Reset to default</string>
     <string name="dj_section_context">Time &amp; place</string>
     <string name="dj_context_enable">Use local context</string>
     <string name="dj_context_enable_desc">Let the DJ mention the time, your city, weather and headlines.</string>

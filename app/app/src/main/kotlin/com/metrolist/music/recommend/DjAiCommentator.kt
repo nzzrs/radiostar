@@ -30,6 +30,8 @@ object DjAiCommentator {
         nextArtist: String,
         fact: String? = null,
         contextSummary: String = "",
+        previousLinks: List<String> = emptyList(),
+        generalPrompt: String = DjPrompt.DEFAULT,
     ): String? {
         val prompt =
             DjIntroPolicy.linkPrompt(
@@ -39,6 +41,8 @@ object DjAiCommentator {
                 nextArtist = nextArtist,
                 fact = fact,
                 contextSummary = contextSummary,
+                previousLinks = previousLinks,
+                generalPrompt = generalPrompt,
             )
         return request(context, prompt, if (fact.isNullOrBlank()) "Say the link." else "Say the link with the session detail.")
     }
@@ -49,6 +53,8 @@ object DjAiCommentator {
         firstTitle: String,
         firstArtist: String,
         contextSummary: String = "",
+        previousLinks: List<String> = emptyList(),
+        generalPrompt: String = DjPrompt.DEFAULT,
         timeoutMs: Long = DjIntroPolicy.INTRO_CHAT_TIMEOUT_MS,
     ): String? {
         val prompt =
@@ -57,6 +63,8 @@ object DjAiCommentator {
                 firstTitle = firstTitle,
                 firstArtist = firstArtist,
                 contextSummary = contextSummary,
+                previousLinks = previousLinks,
+                generalPrompt = generalPrompt,
             )
         return request(context, prompt, "Open the session.", timeoutMs)
     }

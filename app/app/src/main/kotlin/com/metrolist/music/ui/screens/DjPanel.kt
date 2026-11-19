@@ -76,6 +76,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.metrolist.music.R
+import com.metrolist.music.constants.RadioStarDjPromptKey
 import com.metrolist.music.playback.DjVoicePreview
 import com.metrolist.music.recommend.DjConfig
 import com.metrolist.music.recommend.DjPersona
@@ -83,8 +84,10 @@ import com.metrolist.music.recommend.DjPersonaIssue
 import com.metrolist.music.recommend.DjPersonaLibrary
 import com.metrolist.music.recommend.DjPersonaValidation
 import com.metrolist.music.recommend.DjPresence
+import com.metrolist.music.recommend.DjPrompt
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
+import com.metrolist.music.utils.rememberPreference
 import java.util.Locale
 
 @Composable
@@ -329,6 +332,7 @@ fun DjSettingsBody(
     var editorOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<DjPersona?>(null) }
     var pendingDelete by remember { mutableStateOf<DjPersona?>(null) }
+    var generalPrompt by rememberPreference(RadioStarDjPromptKey, DjPrompt.DEFAULT)
     Column(Modifier.fillMaxWidth()) {
         DjPersonaHero(config)
         Spacer(Modifier.height(24.dp))
@@ -433,6 +437,30 @@ fun DjSettingsBody(
                     ),
                 ),
         )
+        Spacer(Modifier.height(24.dp))
+        DjSection(
+            title = stringResource(R.string.dj_prompt_section),
+            description = stringResource(R.string.dj_prompt_desc),
+        ) {
+            OutlinedTextField(
+                value = generalPrompt,
+                onValueChange = { generalPrompt = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.dj_prompt_label)) },
+                supportingText = { Text(stringResource(R.string.dj_prompt_support)) },
+                minLines = 4,
+                maxLines = 8,
+                shape = RoundedCornerShape(16.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = { generalPrompt = DjPrompt.DEFAULT }) {
+                    Text(stringResource(R.string.dj_prompt_reset))
+                }
+            }
+        }
         Spacer(Modifier.height(24.dp))
         DjSection(
             title = stringResource(R.string.dj_section_context),

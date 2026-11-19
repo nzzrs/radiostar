@@ -99,20 +99,24 @@ object DjIntroPolicy {
         firstTitle: String,
         firstArtist: String,
         contextSummary: String = "",
+        previousLinks: List<String> = emptyList(),
+        generalPrompt: String = DjPrompt.DEFAULT,
     ): String =
         buildString {
-            append("You are ${persona.displayName}, a radio DJ with this personality: ")
+            append(generalPrompt.trim())
+            append(" Your on-air personality is ${persona.displayName}: ")
             append(persona.tagline)
-            append(". Open a listening session in at most 30 words. ")
+            append(". Open a listening session in at most 30 words, in the language of the listener. ")
             append("Mention the first track: $firstTitle by $firstArtist. ")
-            append("Sound like yourself, not like a generic announcer. ")
+            append("Say what you think of it with an opinion or a joke, and tie it to the time, city, weather or news only when it fits naturally; never read those details as a list. ")
             if (contextSummary.isNotBlank()) {
                 append("You may use this true local context if it fits, without inventing anything: ")
                 append(contextSummary.trim())
                 append(". ")
             }
+            appendPreviousLinks(previousLinks)
             append("Do not say 'let the beat play'. ")
-            append("Use the language of the listener, no markdown or quotes.")
+            append("No markdown or quotes.")
         }
 
     fun linkPrompt(
@@ -122,14 +126,19 @@ object DjIntroPolicy {
         nextArtist: String,
         fact: String?,
         contextSummary: String = "",
+        previousLinks: List<String> = emptyList(),
+        generalPrompt: String = DjPrompt.DEFAULT,
     ): String =
         buildString {
-            append("You are ${persona.displayName}, a radio DJ with this personality: ")
+            append(generalPrompt.trim())
+            append(" Your on-air personality is ${persona.displayName}: ")
             append(persona.tagline)
             append(". Write one short spoken link, at most 25 words, ")
             append("in the language of the listener, no markdown or quotes. ")
             if (!previous.isNullOrBlank()) append("Previous track: $previous. ")
             append("Next: $nextTitle by $nextArtist. ")
+            append("React to the track that just played and set up the next one with an opinion, a joke or a connection to the time, city, weather or news when it fits. ")
+            append("Never read the time, weather or news as a list. ")
             if (!fact.isNullOrBlank()) {
                 append("You may use this true session detail, without inventing anything: $fact ")
                 append("Keep the link natural, not like a list of statistics. ")
@@ -139,7 +148,19 @@ object DjIntroPolicy {
                 append(contextSummary.trim())
                 append(". ")
             }
+            appendPreviousLinks(previousLinks)
         }
+
+    private fun StringBuilder.appendPreviousLinks(previousLinks: List<String>) {
+        val recent =
+            previousLinks
+                .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                .takeLast(DjSessionMemory.DEFAULT_CAPACITY)
+        if (recent.isEmpty()) return
+        append("Earlier in this session you said: ")
+        append(recent.joinToString(" · "))
+        append(". Do not repeat those jokes, opinions or phrasing; build on them only if useful. ")
+    }
 
     /**
      * Waits at most [timeoutMs] for the chat model and falls back to the local
